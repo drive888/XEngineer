@@ -220,10 +220,41 @@ export function App() {
 
 function LandingPage({ onStart }: { onStart: () => void }) {
   const waveformBars = [28, 46, 34, 62, 42, 70, 52, 38, 64, 48, 72, 44, 58, 36, 66, 50, 40, 60]
+  const revealStyle = (index: number) => ({ '--reveal-index': index } as React.CSSProperties)
+
+  useEffect(() => {
+    const revealTargets = Array.from(document.querySelectorAll<HTMLElement>('[data-reveal]'))
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (prefersReducedMotion || !('IntersectionObserver' in window)) {
+      revealTargets.forEach((target) => target.classList.add('is-visible'))
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return
+          entry.target.classList.add('is-visible')
+          observer.unobserve(entry.target)
+        })
+      },
+      { rootMargin: '0px 0px -10% 0px', threshold: 0.16 },
+    )
+    revealTargets.forEach((target) => observer.observe(target))
+    return () => observer.disconnect()
+  }, [])
+
+  const scrollToSection = useCallback((event: React.MouseEvent<HTMLAnchorElement>, sectionId: string) => {
+    event.preventDefault()
+    const target = document.getElementById(sectionId)
+    if (!target) return
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    window.history.replaceState(null, '', `#${sectionId}`)
+  }, [])
 
   return (
     <main className="landing-page">
-      <nav className="landing-nav" aria-label="产品导航">
+      <nav className="landing-nav" aria-label="产品导航" data-reveal style={revealStyle(0)}>
         <div className="brand-mark">
           <span className="brand-icon">
             <Mic aria-hidden="true" />
@@ -231,9 +262,9 @@ function LandingPage({ onStart }: { onStart: () => void }) {
           <span>DrawLess</span>
         </div>
         <div className="landing-links">
-          <a href="#features">功能</a>
-          <a href="#examples">示例</a>
-          <a href="#how">使用方法</a>
+          <a href="#features" onClick={(event) => scrollToSection(event, 'features')}>功能</a>
+          <a href="#examples" onClick={(event) => scrollToSection(event, 'examples')}>示例</a>
+          <a href="#how" onClick={(event) => scrollToSection(event, 'how')}>使用方法</a>
         </div>
         <div className="landing-actions">
           <button className="primary-cta" type="button" onClick={onStart}>
@@ -244,7 +275,7 @@ function LandingPage({ onStart }: { onStart: () => void }) {
       </nav>
 
       <section className="hero-section">
-        <div className="hero-copy">
+        <div className="hero-copy" data-reveal style={revealStyle(1)}>
           <span className="hero-pill">Voice controlled drawing</span>
           <h1>说话时，画布跟着动起来</h1>
           <p>点击话筒或按空格开始录音，说出要画的内容，DrawLess 会把语音理解成绘图步骤，并在画布上一笔一画生成结果。</p>
@@ -253,7 +284,7 @@ function LandingPage({ onStart }: { onStart: () => void }) {
               <Mic aria-hidden="true" />
               开始语音绘图
             </button>
-            <a className="ghost-cta hero-example" href="#examples">
+            <a className="ghost-cta hero-example" href="#examples" onClick={(event) => scrollToSection(event, 'examples')}>
               查看示例
               <ArrowRight aria-hidden="true" />
             </a>
@@ -274,7 +305,7 @@ function LandingPage({ onStart }: { onStart: () => void }) {
           </div>
         </div>
 
-        <div className="product-preview" aria-label="语音绘图产品预览">
+        <div className="product-preview" aria-label="语音绘图产品预览" data-reveal style={revealStyle(2)}>
           <div className="preview-toolbar">
             <span>Live session</span>
             <span className="preview-status">正在监听</span>
@@ -319,32 +350,32 @@ function LandingPage({ onStart }: { onStart: () => void }) {
         </div>
       </section>
 
-      <section className="feature-section" id="features">
+      <section className="feature-section" id="features" data-reveal style={revealStyle(0)}>
         <span className="section-kicker">功能</span>
         <h2>
           从语音到<span>可修改画布</span>
         </h2>
         <p>DrawLess 面向语音绘图创作：先听懂你说的内容，再拆成绘图动作，最后用逐步动画呈现出来。</p>
         <div className="feature-grid">
-          <article>
+          <article data-reveal style={revealStyle(1)}>
             <h3>自然语言绘图</h3>
             <p>可以直接说“画一片草原”“画一棵树在车旁边”，不需要记固定模板。</p>
           </article>
-          <article>
+          <article data-reveal style={revealStyle(2)}>
             <h3>过程可见</h3>
             <p>画面不是突然出现，而是按操作顺序逐步生成，更像人手在画布上完成。</p>
           </article>
-          <article>
+          <article data-reveal style={revealStyle(3)}>
             <h3>继续追改</h3>
             <p>生成后还能继续说移动、改色、清空、添加新元素，逐步把画面调准。</p>
           </article>
         </div>
       </section>
 
-      <section className="examples-section" id="examples">
+      <section className="examples-section" id="examples" data-reveal style={revealStyle(0)}>
         <span className="section-kicker">示例</span>
         <h2>看一次完整语音绘图过程</h2>
-        <div className="demo-movie" aria-label="语音绘图操作动图演示">
+        <div className="demo-movie" aria-label="语音绘图操作动图演示" data-reveal style={revealStyle(1)}>
           <div className="demo-sidebar">
             <div className="demo-mic">
               <Mic aria-hidden="true" />
@@ -363,14 +394,14 @@ function LandingPage({ onStart }: { onStart: () => void }) {
         </div>
       </section>
 
-      <section className="how-section" id="how">
+      <section className="how-section" id="how" data-reveal style={revealStyle(0)}>
         <span className="section-kicker">使用方法</span>
         <h2>两种方式开始录音</h2>
         <div className="step-row">
-          <span>进入工作区</span>
-          <span>点击话筒按钮，或按空格开始录音</span>
-          <span>说出要画或修改的内容</span>
-          <span>再次点击按钮，或再按一次空格结束录音</span>
+          <span data-reveal style={revealStyle(1)}>进入工作区</span>
+          <span data-reveal style={revealStyle(2)}>点击话筒按钮，或按空格开始录音</span>
+          <span data-reveal style={revealStyle(3)}>说出要画或修改的内容</span>
+          <span data-reveal style={revealStyle(4)}>再次点击按钮，或再按一次空格结束录音</span>
         </div>
         <button className="primary-cta section-cta" type="button" onClick={onStart}>
           进入工作区
