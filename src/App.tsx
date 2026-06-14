@@ -261,7 +261,7 @@ function LandingPage({ onStart }: { onStart: () => void }) {
           <div className="trust-row" aria-label="产品特性">
             <span>
               <Check aria-hidden="true" />
-              实时语音
+              一句识别
             </span>
             <span>
               <Check aria-hidden="true" />
@@ -281,7 +281,7 @@ function LandingPage({ onStart }: { onStart: () => void }) {
           </div>
 
           <section className="preview-panel waveform-panel" aria-label="语音波形">
-            <div className="preview-label">实时语音</div>
+            <div className="preview-label">语音识别</div>
             <div className="waveform" aria-hidden="true">
               {waveformBars.map((height, index) => (
                 <span key={index} style={{ '--bar-height': `${height}px` } as React.CSSProperties} />
@@ -359,13 +359,7 @@ function LandingPage({ onStart }: { onStart: () => void }) {
           </div>
           <div className="demo-gif-frame">
             <img alt="DrawLess 语音绘图录屏动图演示" src={landingDemoGifUrl} />
-            <div className="demo-gif-caption">真实录屏截取：按空格录音，语音结束后画布逐步绘制。</div>
           </div>
-        </div>
-        <div className="prompt-strip" aria-label="可测试语音示例">
-          <span>画一片草原</span>
-          <span>画一棵树在草原上</span>
-          <span>清空画布后画一个火箭</span>
         </div>
       </section>
 

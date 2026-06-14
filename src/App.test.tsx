@@ -123,7 +123,7 @@ describe('App speech fallback', () => {
     expect(screen.getByRole('link', { name: '示例' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '使用方法' })).toBeInTheDocument()
     expect(within(screen.getByRole('navigation', { name: '产品导航' })).getByRole('button', { name: '进入工作区' })).toBeInTheDocument()
-    expect(screen.getAllByText('实时语音').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('一句识别').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('AI 解析').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('逐笔绘制').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('示例演示')).toBeInTheDocument()

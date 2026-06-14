@@ -475,7 +475,6 @@ body {
 }
 
 .feature-grid article,
-.prompt-strip span,
 .step-row span {
   background: #ffffff;
   border: 1px solid #e5e7eb;
@@ -498,7 +497,6 @@ body {
   margin: 0;
 }
 
-.prompt-strip,
 .step-row {
   display: flex;
   flex-wrap: wrap;
@@ -588,16 +586,6 @@ body {
   width: 100%;
 }
 
-.demo-gif-caption {
-  color: #475569;
-  font-size: 14px;
-  font-weight: 760;
-  line-height: 1.5;
-  padding: 12px 4px 0;
-  text-align: center;
-}
-
-.prompt-strip span,
 .step-row span {
   color: #374151;
   font-size: 15px;
