@@ -1,4 +1,5 @@
-export type ShapeKind = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'line'
+export type Point = [number, number]
+export type ShapeKind = 'rectangle' | 'ellipse' | 'triangle' | 'diamond' | 'line' | 'path'
 export type DrawKind = 'shape' | 'text' | 'arrow' | 'asset'
 export type PositionName =
   | 'top-left'
@@ -20,6 +21,7 @@ export type TargetRef =
   | {
       type: 'query'
       shape?: ShapeKind | 'text'
+      assetId?: string
       color?: string
       position?: PositionName
       order?: 'largest' | 'smallest' | 'first' | 'last'
@@ -43,6 +45,7 @@ export type DrawOperation =
       y?: number
       width?: number
       height?: number
+      points?: Point[]
       rotation?: number
       selected?: boolean
       target?: TargetRef

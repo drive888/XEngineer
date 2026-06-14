@@ -170,6 +170,67 @@ describe('parseVoiceCommand', () => {
     ])
   })
 
+  it('parses grassland as separate drawn strokes instead of a pasted asset', () => {
+    const operations = parseVoiceCommand('画一片草原').operations
+
+    expect(operations.length).toBeGreaterThanOrEqual(24)
+    expect(operations.some((operation) => operation.action === 'create' && operation.kind === 'asset')).toBe(false)
+    expect(operations.filter((operation) => operation.action === 'create' && operation.shape === 'path').length).toBeGreaterThanOrEqual(6)
+    expect(operations.filter((operation) => operation.action === 'create' && operation.shape === 'ellipse').length).toBeGreaterThanOrEqual(6)
+    expect(operations.every((operation) => operation.action !== 'create' || operation.selected === false)).toBe(true)
+  })
+
+  it('parses a tree on grassland as scene strokes plus a tree', () => {
+    const operations = parseVoiceCommand('画一棵树在草原上').operations
+
+    expect(operations.length).toBeGreaterThan(16)
+    expect(operations.at(-1)).toMatchObject({
+      action: 'create',
+      kind: 'asset',
+      assetId: 'tree',
+      x: 330,
+      y: 206,
+      width: 240,
+      height: 270,
+      selected: false,
+    })
+  })
+
+  it('parses AI mind map as a structured local diagram', () => {
+    const operations = parseVoiceCommand('画一个关于AI的思维导图').operations
+
+    expect(operations.some((operation) => operation.action === 'create' && operation.kind === 'asset')).toBe(false)
+    expect(operations.filter((operation) => operation.action === 'create' && operation.shape === 'path')).toHaveLength(6)
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: 'create', kind: 'shape', shape: 'ellipse', text: 'AI' }),
+        expect.objectContaining({ action: 'create', kind: 'shape', shape: 'rectangle', text: '机器学习' }),
+        expect.objectContaining({ action: 'create', kind: 'shape', shape: 'rectangle', text: '深度学习' }),
+        expect.objectContaining({ action: 'create', kind: 'shape', shape: 'rectangle', text: '自然语言处理' }),
+        expect.objectContaining({ action: 'create', kind: 'shape', shape: 'rectangle', text: '计算机视觉' }),
+        expect.objectContaining({ action: 'create', kind: 'shape', shape: 'rectangle', text: '生成式AI' }),
+        expect.objectContaining({ action: 'create', kind: 'shape', shape: 'rectangle', text: '应用场景' }),
+      ]),
+    )
+  })
+
+  it('parses relative asset placement against a named anchor', () => {
+    expect(parseVoiceCommand('画一棵树，再画一辆汽车在树的旁边').operations).toMatchObject([
+      {
+        action: 'create',
+        kind: 'asset',
+        assetId: 'tree',
+      },
+      {
+        action: 'create',
+        kind: 'asset',
+        assetId: 'car',
+        position: 'right',
+        target: { type: 'query', assetId: 'tree' },
+      },
+    ])
+  })
+
   it('distinguishes tree diagrams from tree objects', () => {
     expect(parseVoiceCommand('画树状图').operations).toMatchObject([
       {

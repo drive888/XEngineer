@@ -1,7 +1,7 @@
 import { normalizeCommand } from './normalizer'
 import type { DrawOperation, ParseResult, PositionName, ShapeKind, SizeName } from './types'
 import { findExternalLibraryAssetId, getExternalCatalogEntry } from './excalidrawLibraryAssets'
-import { findVisualAssetId, getVisualAsset } from './visualAssets'
+import { findVisualAssetId, getVisualAsset, visualAssets } from './visualAssets'
 
 const colorMap: Record<string, string> = {
   红色: 'red',
@@ -74,11 +74,14 @@ function parseStep(text: string): DrawOperation[] {
   if (/清空|清除|清理|擦掉/.test(text) && /画布|全部|所有/.test(text)) return [{ action: 'clear' }]
   if (/导出|保存作品|保存图片/.test(text)) return [{ action: 'export' }]
   if (/删除/.test(text)) return [{ action: 'delete', target: { type: 'last' } }]
+  if (isMindMapScene(text)) return createMindMapTemplate(text)
+  if (isGrasslandScene(text)) return createGrasslandSceneTemplate(text)
   if (/太阳/.test(text) && /云/.test(text)) return createSunCloudSceneTemplate()
   if (/流程图/.test(text) && /开始/.test(text) && /结束/.test(text)) return createFlowchartTemplate()
   const visualAsset = findVisualAssetId(text)
   if (visualAsset && /画|来|生成|创建|加/.test(text)) {
     const asset = getVisualAsset(visualAsset)
+    const relativeTarget = findRelativeTarget(text, visualAsset)
     return [
       {
         action: 'create',
@@ -86,7 +89,8 @@ function parseStep(text: string): DrawOperation[] {
         assetId: visualAsset,
         fill: asset?.defaultFill,
         stroke: asset?.defaultStroke,
-        position: findPosition(text),
+        position: visualAsset === 'grassland' ? 'bottom' : relativeTarget?.position ?? findPosition(text),
+        target: relativeTarget?.target,
         size: findSize(text, visualAsset),
         selected: false,
       },
@@ -220,6 +224,221 @@ function createSunCloudSceneTemplate(): DrawOperation[] {
   ].map((operation) => ({ ...operation, ...keepUnselected }))
 }
 
+function isMindMapScene(text: string) {
+  return /思维导图|脑图|mind\s*map/i.test(text) && /画|创建|生成|做/.test(text)
+}
+
+function createMindMapTemplate(text: string): DrawOperation[] {
+  const topic = /AI|人工智能/i.test(text) ? 'AI' : '主题'
+  const center = { x: 392, y: 224, width: 116, height: 116 }
+  const nodes = [
+    { label: '机器学习', x: 92, y: 92, width: 178, height: 58, fill: 'yellow', stroke: 'orange', anchor: [392, 258] as [number, number], target: [270, 121] as [number, number] },
+    { label: '深度学习', x: 632, y: 92, width: 178, height: 58, fill: 'green', stroke: 'blue', anchor: [508, 258] as [number, number], target: [632, 121] as [number, number] },
+    { label: '自然语言处理', x: 76, y: 392, width: 214, height: 62, fill: 'pink', stroke: 'red', anchor: [392, 304] as [number, number], target: [290, 423] as [number, number] },
+    { label: '计算机视觉', x: 624, y: 392, width: 214, height: 62, fill: 'purple', stroke: 'blue', anchor: [508, 304] as [number, number], target: [624, 423] as [number, number] },
+    { label: '生成式AI', x: 352, y: 60, width: 196, height: 58, fill: 'cyan', stroke: 'blue', anchor: [450, 224] as [number, number], target: [450, 118] as [number, number] },
+    { label: '应用场景', x: 352, y: 442, width: 196, height: 58, fill: 'orange', stroke: 'brown', anchor: [450, 340] as [number, number], target: [450, 442] as [number, number] },
+  ]
+
+  return [
+    {
+      action: 'create',
+      kind: 'shape',
+      shape: 'ellipse',
+      text: topic,
+      fill: 'cyan',
+      stroke: 'blue',
+      ...center,
+      selected: false,
+    },
+    ...nodes.flatMap((node) => [
+      createCurvedConnector(node.anchor, node.target, node.stroke),
+      createMindMapNode(node.x, node.y, node.width, node.height, node.label, node.fill, node.stroke),
+    ]),
+  ]
+}
+
+function createCurvedConnector(from: [number, number], to: [number, number], stroke: string): DrawOperation {
+  const midX = Math.round((from[0] + to[0]) / 2)
+  const midY = Math.round((from[1] + to[1]) / 2)
+  const bend = to[1] < from[1] ? -28 : 28
+  return createStrokePath(stroke, [from, [midX, midY + bend], to])
+}
+
+function createMindMapNode(x: number, y: number, width: number, height: number, text: string, fill: string, stroke: string): DrawOperation {
+  return {
+    action: 'create',
+    kind: 'shape',
+    shape: 'rectangle',
+    text,
+    fill,
+    stroke,
+    x,
+    y,
+    width,
+    height,
+    selected: false,
+  }
+}
+
+function isGrasslandScene(text: string) {
+  return /草原|草地|草坪|草场/.test(text) && /画|来|生成|创建|加/.test(text)
+}
+
+function createGrasslandSceneTemplate(text: string): DrawOperation[] {
+  const strokes: DrawOperation[] = [
+    createStrokeRect(0, 0, 450, 318, 'cyan', 'cyan'),
+    createStrokeRect(450, 0, 450, 318, 'cyan', 'cyan'),
+    createStrokeRect(0, 318, 450, 242, '#dcfce7', '#22c55e'),
+    createStrokeRect(450, 318, 450, 242, '#dcfce7', '#22c55e'),
+    createStrokeEllipse(706, 74, 82, 82, 'yellow', 'orange'),
+    createStrokePath('#86efac', [
+      [0, 288],
+      [122, 250],
+      [236, 282],
+      [372, 244],
+      [520, 276],
+      [690, 246],
+      [900, 282],
+    ]),
+    createStrokePath('#4ade80', [
+      [0, 334],
+      [128, 316],
+      [244, 340],
+      [392, 314],
+      [548, 338],
+      [720, 316],
+      [900, 336],
+    ]),
+    createStrokePath('green', [
+      [58, 378],
+      [196, 360],
+      [336, 386],
+      [510, 362],
+      [688, 384],
+      [842, 368],
+    ]),
+    createStrokePath('#15803d', [
+      [38, 420],
+      [160, 438],
+      [302, 416],
+      [470, 438],
+      [646, 414],
+      [822, 432],
+    ]),
+    createStrokePath('#166534', [
+      [44, 486],
+      [220, 474],
+      [394, 494],
+      [588, 474],
+      [812, 488],
+    ]),
+    ...createGrassBladeCluster(98, 426, 0.8),
+    ...createGrassBladeCluster(210, 456, 1),
+    ...createGrassBladeCluster(342, 424, 0.75),
+    ...createGrassBladeCluster(512, 464, 1.05),
+    ...createGrassBladeCluster(656, 430, 0.85),
+    ...createGrassBladeCluster(780, 468, 0.95),
+    createStrokeEllipse(156, 438, 18, 18, 'yellow', 'orange'),
+    createStrokeEllipse(176, 432, 12, 12, 'white', '#94a3b8'),
+    createStrokeEllipse(548, 424, 16, 16, 'pink', '#be185d'),
+    createStrokeEllipse(586, 438, 12, 12, 'yellow', 'orange'),
+    createStrokeEllipse(724, 412, 15, 15, 'white', '#94a3b8'),
+    createStrokeEllipse(756, 428, 13, 13, 'pink', '#be185d'),
+  ]
+
+  if (!/树|树木|大树/.test(text) || /树状图/.test(text)) return strokes
+
+  return [
+    ...strokes,
+    {
+      action: 'create',
+      kind: 'asset',
+      assetId: 'tree',
+      fill: 'green',
+      stroke: 'brown',
+      x: 330,
+      y: 206,
+      width: 240,
+      height: 270,
+      selected: false,
+    },
+  ]
+}
+
+function createStrokeLine(x: number, y: number, width: number, height: number, stroke: string, rotation: number): DrawOperation {
+  return {
+    action: 'create',
+    kind: 'shape',
+    shape: 'line',
+    fill: stroke,
+    stroke,
+    x,
+    y,
+    width,
+    height,
+    rotation,
+    selected: false,
+  }
+}
+
+function createStrokePath(stroke: string, points: [number, number][]): DrawOperation {
+  return {
+    action: 'create',
+    kind: 'shape',
+    shape: 'path',
+    fill: stroke,
+    stroke,
+    points,
+    selected: false,
+  }
+}
+
+function createStrokeRect(x: number, y: number, width: number, height: number, fill: string, stroke: string): DrawOperation {
+  return {
+    action: 'create',
+    kind: 'shape',
+    shape: 'rectangle',
+    fill,
+    stroke,
+    x,
+    y,
+    width,
+    height,
+    selected: false,
+  }
+}
+
+function createStrokeEllipse(x: number, y: number, width: number, height: number, fill: string, stroke: string): DrawOperation {
+  return {
+    action: 'create',
+    kind: 'shape',
+    shape: 'ellipse',
+    fill,
+    stroke,
+    x,
+    y,
+    width,
+    height,
+    selected: false,
+  }
+}
+
+function createGrassBladeCluster(x: number, y: number, scale: number): DrawOperation[] {
+  return [
+    createStrokePath('#166534', [
+      [x, y],
+      [Math.round(x + 14 * scale), Math.round(y - 42 * scale)],
+      [Math.round(x + 28 * scale), Math.round(y - 4 * scale)],
+    ]),
+    createStrokePath('#15803d', [
+      [Math.round(x + 38 * scale), Math.round(y + 6 * scale)],
+      [Math.round(x + 56 * scale), Math.round(y - 36 * scale)],
+      [Math.round(x + 72 * scale), Math.round(y + 4 * scale)],
+    ]),
+  ]
+}
+
 function createSun(cx: number, cy: number, diameter: number): Extract<DrawOperation, { action: 'create' }>[] {
   const rayLength = 54
   const rayWidth = 14
@@ -292,10 +511,21 @@ function findPosition(text: string): PositionName {
   return positionMap.find(([name]) => text.includes(name))?.[1] ?? 'center'
 }
 
+function findRelativeTarget(text: string, createdAssetId: string): { position: PositionName; target: { type: 'query'; assetId: string } } | null {
+  if (!/旁边|附近|边上|旁/.test(text)) return null
+  const anchor = Object.values(visualAssets).find((asset) => asset.id !== createdAssetId && asset.aliases.some((alias) => text.includes(alias)))
+  if (!anchor) return null
+  const position = /左边|左侧|左/.test(text) ? 'left' : /上方|上面|上/.test(text) ? 'top' : /下方|下面|下/.test(text) ? 'bottom' : 'right'
+  return {
+    position,
+    target: { type: 'query', assetId: anchor.id },
+  }
+}
+
 function findSize(text: string, assetId?: string): SizeName {
   const explicitSize = sizeMap.find(([pattern]) => pattern.test(text))?.[1]
   if (explicitSize) return explicitSize
-  return assetId === 'elephant' ? 'large' : 'medium'
+  return assetId === 'elephant' || assetId === 'grassland' ? 'large' : 'medium'
 }
 
 function parseTextContent(text: string) {

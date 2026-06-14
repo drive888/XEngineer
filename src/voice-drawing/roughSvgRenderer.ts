@@ -33,6 +33,7 @@ export function renderItemAsRoughSvg(item: CanvasItem) {
     return `<text x="${item.x}" y="${item.y + 32}" fill="${toColor(item.fill)}" font-size="28" font-weight="700">${escapeXml(item.text ?? '')}</text>`
   }
   if (item.kind === 'asset') return renderVisualAsset(item)
+  if (item.shape === 'path') return renderFreehandPath(item)
 
   const options = roughOptions(item)
   const drawable = createDrawable(item, options)
@@ -46,6 +47,30 @@ export function renderItemAsRoughSvg(item: CanvasItem) {
     .join('')
   const rotation = item.rotation ? ` transform="rotate(${item.rotation} ${item.x + item.width / 2} ${item.y + item.height / 2})"` : ''
   return `<g${rotation}>${content}${item.text ? renderShapeLabel(item) : ''}</g>`
+}
+
+function renderFreehandPath(item: CanvasItem) {
+  const points = item.points ?? []
+  if (points.length < 2) return ''
+  const d = smoothPath(points)
+  const rotation = item.rotation ? ` transform="rotate(${item.rotation} ${item.x + item.width / 2} ${item.y + item.height / 2})"` : ''
+  return `<g${rotation}><path class="sketch-stroke freehand-stroke" d="${d}" stroke="${toColor(item.stroke || item.fill)}" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="--draw-delay:0ms;--draw-duration:1200ms" /></g>`
+}
+
+function smoothPath(points: [number, number][]) {
+  if (points.length === 2) return `M ${points[0][0]} ${points[0][1]} L ${points[1][0]} ${points[1][1]}`
+  const [start, ...rest] = points
+  const commands = [`M ${start[0]} ${start[1]}`]
+  for (let index = 0; index < rest.length - 1; index += 1) {
+    const current = rest[index]
+    const next = rest[index + 1]
+    const midX = Math.round((current[0] + next[0]) / 2)
+    const midY = Math.round((current[1] + next[1]) / 2)
+    commands.push(`Q ${current[0]} ${current[1]} ${midX} ${midY}`)
+  }
+  const last = rest[rest.length - 1]
+  commands.push(`T ${last[0]} ${last[1]}`)
+  return commands.join(' ')
 }
 
 function renderVisualAsset(item: CanvasItem) {
@@ -228,7 +253,9 @@ function roughOptions(item: CanvasItem): Options {
 }
 
 function renderShapeLabel(item: CanvasItem) {
-  return `<text x="${item.x + item.width / 2}" y="${item.y + item.height / 2 + 8}" fill="#ffffff" font-size="24" font-weight="700" text-anchor="middle">${escapeXml(item.text ?? '')}</text>`
+  const text = item.text ?? ''
+  const fontSize = Math.max(15, Math.min(24, Math.floor((item.width - 24) / Math.max(text.length, 1))))
+  return `<text x="${item.x + item.width / 2}" y="${item.y + item.height / 2 + fontSize / 3}" fill="#ffffff" font-size="${fontSize}" font-weight="700" text-anchor="middle">${escapeXml(text)}</text>`
 }
 
 function seedFromId(id: string) {

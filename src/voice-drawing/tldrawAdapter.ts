@@ -28,6 +28,7 @@ export function projectItemsToTldrawShapes(items: CanvasItem[]): TLShapePartial[
   for (const item of items) {
     const id = createShapeId(item.id)
     if (item.kind === 'asset') continue
+    if (item.shape === 'path') continue
     if (item.kind === 'text') {
       shapes.push({
         id,

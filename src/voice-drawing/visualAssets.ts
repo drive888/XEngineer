@@ -1,4 +1,4 @@
-export type VisualAssetId = 'elephant' | 'cat' | 'treeDiagram' | 'tree' | 'house' | 'car' | 'rocket'
+export type VisualAssetId = 'elephant' | 'cat' | 'treeDiagram' | 'tree' | 'house' | 'car' | 'rocket' | 'grassland'
 
 export type VisualAssetStroke = {
   d: string
@@ -147,6 +147,30 @@ export const visualAssets: Record<VisualAssetId, VisualAsset> = {
       { d: 'M154 204 C170 216 190 216 206 204', stroke: '#6b7280', width: 2.2, delay: 8 },
     ],
   },
+  grassland: {
+    id: 'grassland',
+    label: '草原',
+    aliases: ['草原', '草地', '草坪', '草场', 'grassland', 'meadow'],
+    defaultFill: 'green',
+    defaultStroke: 'black',
+    defaultWidth: 820,
+    defaultHeight: 360,
+    strokes: [
+      { d: 'M0 0 L820 0 L820 176 C690 152 560 168 436 142 C286 110 142 122 0 154 Z', fill: '#c9f1ff', stroke: '#c9f1ff', width: 1, delay: 0 },
+      { d: 'M0 132 C116 72 212 106 302 146 C408 190 514 122 628 126 C714 130 772 164 820 196 L820 360 L0 360 Z', fill: '#85d783', stroke: '#2f7d37', width: 2.2, delay: 1 },
+      { d: 'M0 196 C134 154 244 178 356 206 C488 238 598 178 820 210 L820 360 L0 360 Z', fill: '#28a957', stroke: '#176c3a', width: 2.4, delay: 2 },
+      { d: 'M0 260 C150 232 280 252 410 274 C552 296 670 248 820 270 L820 360 L0 360 Z', fill: '#159447', stroke: '#135f35', width: 2.2, delay: 3 },
+      { d: 'M64 288 L82 246 L96 290 M122 304 L142 260 L158 304 M208 290 L224 244 L240 292 M312 314 L326 270 L342 314', stroke: '#0f6b35', width: 4, delay: 4 },
+      { d: 'M424 298 L442 254 L456 300 M506 318 L522 272 L540 318 M626 292 L646 246 L660 294 M730 312 L750 266 L766 312', stroke: '#0f6b35', width: 4, delay: 5 },
+      { d: 'M96 236 C118 218 146 218 168 236 M196 230 C220 210 254 212 276 232 M556 220 C584 202 620 204 648 224', stroke: '#ffffff', width: 3, delay: 6 },
+      { d: 'M88 236 C106 250 146 250 168 236 M196 230 C218 246 254 246 276 232 M556 220 C584 238 622 238 648 224', stroke: '#ffffff', width: 2.2, delay: 7 },
+      { d: 'M160 296 C168 286 178 286 186 296 C178 306 168 306 160 296 Z', fill: '#ffe66d', stroke: '#8a6d00', width: 1.8, delay: 8 },
+      { d: 'M360 286 C368 276 378 276 386 286 C378 296 368 296 360 286 Z', fill: '#ff8ac7', stroke: '#8a335f', width: 1.8, delay: 9 },
+      { d: 'M602 304 C610 294 620 294 628 304 C620 314 610 314 602 304 Z', fill: '#ffe66d', stroke: '#8a6d00', width: 1.8, delay: 10 },
+      { d: 'M712 248 C720 238 730 238 738 248 C730 258 720 258 712 248 Z', fill: '#ffffff', stroke: '#5b6b75', width: 1.8, delay: 11 },
+      { d: 'M686 64 C716 34 766 44 782 82 C754 98 710 96 686 64 Z', fill: '#fff07a', stroke: '#c49300', width: 2, delay: 12 },
+    ],
+  },
 }
 
 export function findVisualAssetId(text: string): VisualAssetId | null {
@@ -163,5 +187,5 @@ export function getVisualAsset(id?: string): VisualAsset | null {
 }
 
 export function isVisualAssetId(value: unknown): value is VisualAssetId {
-  return value === 'elephant' || value === 'cat' || value === 'treeDiagram' || value === 'tree' || value === 'house' || value === 'car' || value === 'rocket'
+  return value === 'elephant' || value === 'cat' || value === 'treeDiagram' || value === 'tree' || value === 'house' || value === 'car' || value === 'rocket' || value === 'grassland'
 }

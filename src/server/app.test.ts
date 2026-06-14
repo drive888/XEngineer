@@ -7,6 +7,9 @@ const originalRealtimeModel = process.env.OPENAI_REALTIME_MODEL
 const originalRealtimeApiKey = process.env.OPENAI_REALTIME_API_KEY
 const originalGeminiApiKey = process.env.GEMINI_API_KEY
 const originalGeminiLiveModel = process.env.GEMINI_LIVE_MODEL
+const originalAiParserUrl = process.env.AI_PARSER_API_URL
+const originalAiParserKey = process.env.AI_PARSER_API_KEY
+const originalAiParserModel = process.env.AI_PARSER_MODEL
 
 afterEach(() => {
   process.env.OPENAI_API_KEY = originalApiKey
@@ -14,6 +17,9 @@ afterEach(() => {
   process.env.OPENAI_REALTIME_API_KEY = originalRealtimeApiKey
   process.env.GEMINI_API_KEY = originalGeminiApiKey
   process.env.GEMINI_LIVE_MODEL = originalGeminiLiveModel
+  process.env.AI_PARSER_API_URL = originalAiParserUrl
+  process.env.AI_PARSER_API_KEY = originalAiParserKey
+  process.env.AI_PARSER_MODEL = originalAiParserModel
   vi.unstubAllGlobals()
 })
 
@@ -467,6 +473,361 @@ describe('ai command parser api', () => {
     const payload = JSON.parse(init.body as string)
     expect(payload.model).toBe('mimo-v2.5-pro')
     expect(payload.max_completion_tokens).toBe(1400)
+  })
+
+  it('accepts MiMo relative layout operations for anchored placement', async () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.AI_PARSER_API_URL = 'https://api.xiaomimimo.com/v1/chat/completions'
+    process.env.AI_PARSER_API_KEY = 'test-mimo-key'
+    process.env.AI_PARSER_MODEL = 'mimo-v2.5-pro'
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                operations: [
+                  {
+                    action: 'create',
+                    kind: 'asset',
+                    assetId: 'car',
+                    position: 'right',
+                    target: { type: 'query', assetId: 'tree' },
+                  },
+                ],
+                normalizedText: '在树旁边画汽车',
+                confidence: 0.9,
+              }),
+            },
+          },
+        ],
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const response = await request(createServerApp()).post('/api/parse-command').send({ text: '再画一辆汽车在树的旁边' })
+
+    expect(response.status).toBe(200)
+    expect(response.body.operations[0]).toMatchObject({
+      action: 'create',
+      kind: 'asset',
+      assetId: 'car',
+      position: 'right',
+      target: { type: 'query', assetId: 'tree' },
+    })
+    const [, init] = fetchMock.mock.calls[0]
+    const payload = JSON.parse(init.body as string)
+    expect(payload.messages[0].content).toContain('target')
+    expect(payload.messages[0].content).toContain('assetId')
+  })
+
+  it('accepts grassland as a MiMo visual asset operation', async () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.AI_PARSER_API_URL = 'https://api.xiaomimimo.com/v1/chat/completions'
+    process.env.AI_PARSER_API_KEY = 'test-mimo-key'
+    process.env.AI_PARSER_MODEL = 'mimo-v2.5-pro'
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                operations: [{ action: 'create', kind: 'asset', assetId: 'grassland', position: 'bottom', size: 'large' }],
+                normalizedText: '画一片草原',
+                confidence: 0.9,
+              }),
+            },
+          },
+        ],
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const response = await request(createServerApp()).post('/api/parse-command').send({ text: '画一片草原' })
+
+    expect(response.status).toBe(200)
+    expect(response.body.operations[0]).toMatchObject({
+      action: 'create',
+      kind: 'asset',
+      assetId: 'grassland',
+      position: 'bottom',
+      size: 'large',
+    })
+    const [, init] = fetchMock.mock.calls[0]
+    expect(JSON.parse(init.body as string).messages[0].content).toContain('grassland')
+  })
+})
+
+describe('ai stroke planner api', () => {
+  it('returns 503 when stroke planner credentials are missing', async () => {
+    delete process.env.OPENAI_API_KEY
+    delete process.env.AI_PARSER_API_URL
+    delete process.env.AI_PARSER_API_KEY
+
+    const response = await request(createServerApp()).post('/api/plan-strokes').send({ text: '画一棵树在草原上' })
+
+    expect(response.status).toBe(503)
+    expect(response.body).toEqual({
+      error: 'AI_PARSER_UNAVAILABLE',
+      message: 'OPENAI_API_KEY or AI_PARSER_API_KEY is not configured',
+    })
+  })
+
+  it('calls MiMo as a no-asset human brush stroke planner', async () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.AI_PARSER_API_URL = 'https://api.xiaomimimo.com/v1/chat/completions'
+    process.env.AI_PARSER_API_KEY = 'test-mimo-key'
+    process.env.AI_PARSER_MODEL = 'mimo-v2.5-pro'
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                operations: [
+                  { action: 'create', kind: 'shape', shape: 'line', stroke: 'green', fill: 'green', x: 80, y: 360, width: 700, height: 8, selected: false },
+                  { action: 'create', kind: 'shape', shape: 'rectangle', stroke: 'brown', fill: 'brown', x: 420, y: 260, width: 54, height: 160, selected: false },
+                  { action: 'create', kind: 'shape', shape: 'ellipse', stroke: 'green', fill: 'green', x: 360, y: 170, width: 160, height: 160, selected: false },
+                ],
+                normalizedText: '画一棵树在草原上',
+                confidence: 0.86,
+              }),
+            },
+          },
+        ],
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const response = await request(createServerApp()).post('/api/plan-strokes').send({ text: '画一棵树在草原上' })
+
+    expect(response.status).toBe(200)
+    expect(response.body).toMatchObject({
+      provider: 'ai-stroke-planner',
+      operations: [
+        { action: 'create', kind: 'shape', shape: 'line', selected: false },
+        { action: 'create', kind: 'shape', shape: 'rectangle', selected: false },
+        { action: 'create', kind: 'shape', shape: 'ellipse', selected: false },
+      ],
+    })
+    const [, init] = fetchMock.mock.calls[0]
+    const payload = JSON.parse(init.body as string)
+    expect(payload.model).toBe('mimo-v2.5-pro')
+    expect(payload.messages[0].content).toContain('不要使用 asset')
+    expect(payload.messages[0].content).toContain('像人类画画一样按笔顺')
+  })
+
+  it('rejects asset operations from the stroke planner', async () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.AI_PARSER_API_URL = 'https://api.xiaomimimo.com/v1/chat/completions'
+    process.env.AI_PARSER_API_KEY = 'test-mimo-key'
+    process.env.AI_PARSER_MODEL = 'mimo-v2.5-pro'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  operations: [{ action: 'create', kind: 'asset', assetId: 'grassland', selected: false }],
+                  normalizedText: '画草原',
+                  confidence: 0.8,
+                }),
+              },
+            },
+          ],
+        }),
+      }),
+    )
+
+    const response = await request(createServerApp()).post('/api/plan-strokes').send({ text: '画草原' })
+
+    expect(response.status).toBe(502)
+    expect(response.body.error).toBe('AI_PARSER_INVALID_RESPONSE')
+  })
+
+  it('normalizes MiMo stroke planner color fields and fractional coordinates', async () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.AI_PARSER_API_URL = 'https://api.xiaomimimo.com/v1/chat/completions'
+    process.env.AI_PARSER_API_KEY = 'test-mimo-key'
+    process.env.AI_PARSER_MODEL = 'mimo-v2.5-pro'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  operations: [{ action: 'create', kind: 'shape', shape: 'rectangle', x: 0.45, y: 0.5, width: 0.1, height: 0.4, color: 'brown', selected: false }],
+                  normalizedText: '画一棵树',
+                  confidence: 0.9,
+                }),
+              },
+            },
+          ],
+        }),
+      }),
+    )
+
+    const response = await request(createServerApp()).post('/api/plan-strokes').send({ text: '画一棵树' })
+
+    expect(response.status).toBe(200)
+    expect(response.body.operations[0]).toMatchObject({
+      fill: 'brown',
+      stroke: 'brown',
+      x: 405,
+      y: 280,
+      width: 90,
+      height: 224,
+    })
+  })
+
+  it('normalizes MiMo none colors in stroke planner output', async () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.AI_PARSER_API_URL = 'https://api.xiaomimimo.com/v1/chat/completions'
+    process.env.AI_PARSER_API_KEY = 'test-mimo-key'
+    process.env.AI_PARSER_MODEL = 'mimo-v2.5-pro'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  operations: [
+                    { action: 'create', kind: 'shape', shape: 'line', x: 430, y: 350, width: 60, height: 0, fill: 'none', stroke: 'brown', selected: false },
+                    { action: 'create', kind: 'shape', shape: 'ellipse', x: 400, y: 180, width: 20, height: 20, fill: 'red', stroke: 'none', selected: false },
+                  ],
+                  normalizedText: '画一棵树',
+                  confidence: 0.9,
+                }),
+              },
+            },
+          ],
+        }),
+      }),
+    )
+
+    const response = await request(createServerApp()).post('/api/plan-strokes').send({ text: '画一棵树' })
+
+    expect(response.status).toBe(200)
+    expect(response.body.operations).toMatchObject([
+      { fill: 'brown', stroke: 'brown', height: 4 },
+      { fill: 'red', stroke: 'red' },
+    ])
+  })
+
+  it('accepts freehand path point strokes from the stroke planner', async () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.AI_PARSER_API_URL = 'https://api.xiaomimimo.com/v1/chat/completions'
+    process.env.AI_PARSER_API_KEY = 'test-mimo-key'
+    process.env.AI_PARSER_MODEL = 'mimo-v2.5-pro'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  operations: [
+                    {
+                      action: 'create',
+                      kind: 'shape',
+                      shape: 'path',
+                      points: [
+                        [0.1, 0.75],
+                        [0.16, 0.68],
+                        [0.24, 0.76],
+                      ],
+                      stroke: 'green',
+                      selected: false,
+                    },
+                  ],
+                  normalizedText: '画草地',
+                  confidence: 0.9,
+                }),
+              },
+            },
+          ],
+        }),
+      }),
+    )
+
+    const response = await request(createServerApp()).post('/api/plan-strokes').send({ text: '画草地' })
+
+    expect(response.status).toBe(200)
+    expect(response.body.operations[0]).toMatchObject({
+      action: 'create',
+      kind: 'shape',
+      shape: 'path',
+      points: [
+        [90, 420],
+        [144, 381],
+        [216, 426],
+      ],
+      fill: 'green',
+      stroke: 'green',
+      selected: false,
+    })
+  })
+
+  it('recolors black freehand water strokes from the stroke planner', async () => {
+    delete process.env.OPENAI_API_KEY
+    process.env.AI_PARSER_API_URL = 'https://api.xiaomimimo.com/v1/chat/completions'
+    process.env.AI_PARSER_API_KEY = 'test-mimo-key'
+    process.env.AI_PARSER_MODEL = 'mimo-v2.5-pro'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  operations: [
+                    {
+                      action: 'create',
+                      kind: 'shape',
+                      shape: 'path',
+                      points: [
+                        [100, 300],
+                        [200, 320],
+                        [300, 290],
+                      ],
+                      fill: 'black',
+                      stroke: 'black',
+                      selected: false,
+                    },
+                  ],
+                  normalizedText: '画一条弯曲的小河',
+                  confidence: 0.9,
+                }),
+              },
+            },
+          ],
+        }),
+      }),
+    )
+
+    const response = await request(createServerApp()).post('/api/plan-strokes').send({ text: '画一条弯曲的小河' })
+
+    expect(response.status).toBe(200)
+    expect(response.body.operations[0]).toMatchObject({
+      fill: 'blue',
+      stroke: 'blue',
+    })
   })
 })
 

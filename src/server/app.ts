@@ -30,6 +30,7 @@ interface TranscribeInput {
 type TranscribeAudioFile = (input: TranscribeInput) => Promise<string>
 type TranscribeBolnaMimo = (input: TranscribeInput) => Promise<{ text: string; latencyMs: number }>
 type ParseCommandWithAi = (input: { text: string }) => Promise<AiParseResult>
+type PlanStrokesWithAi = (input: { text: string }) => Promise<AiParseResult>
 type CreateRealtimeSession = () => Promise<RealtimeSessionResult>
 type CreateGeminiLiveToken = () => Promise<GeminiLiveTokenResult>
 
@@ -62,6 +63,7 @@ interface CreateServerAppOptions {
   readonly transcribeAudioFile?: TranscribeAudioFile
   readonly transcribeBolnaMimo?: TranscribeBolnaMimo
   readonly parseCommandWithAi?: ParseCommandWithAi
+  readonly planStrokesWithAi?: PlanStrokesWithAi
   readonly createRealtimeSession?: CreateRealtimeSession
   readonly createGeminiLiveToken?: CreateGeminiLiveToken
 }
@@ -71,6 +73,7 @@ export function createServerApp(options: CreateServerAppOptions = {}) {
   const transcribeAudioFile = options.transcribeAudioFile ?? transcribeWithOpenAI
   const transcribeBolnaMimo = options.transcribeBolnaMimo ?? transcribeWithBolnaMimo
   const parseCommandWithAi = options.parseCommandWithAi ?? parseWithOpenAI
+  const planStrokesWithAi = options.planStrokesWithAi ?? planStrokesWithOpenAI
   const createRealtimeSession = options.createRealtimeSession ?? createOpenAIRealtimeSession
   const createGeminiLiveToken = options.createGeminiLiveToken ?? createGeminiLiveEphemeralToken
 
@@ -152,6 +155,36 @@ export function createServerApp(options: CreateServerAppOptions = {}) {
       response.json({
         ...result,
         provider: 'ai-parser',
+      })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/plan-strokes', async (request, response, next) => {
+    try {
+      const text = typeof request.body?.text === 'string' ? request.body.text.trim() : ''
+      if (!text) {
+        response.status(400).json({
+          error: 'TEXT_REQUIRED',
+          message: 'Command text is required',
+        })
+        return
+      }
+
+      const aiParserStatus = getAiParserStatus()
+      if (!aiParserStatus.available) {
+        response.status(503).json({
+          error: 'AI_PARSER_UNAVAILABLE',
+          message: aiParserStatus.reason,
+        })
+        return
+      }
+
+      const result = parseStrokePlanResult(await planStrokesWithAi({ text }))
+      response.json({
+        ...result,
+        provider: 'ai-stroke-planner',
       })
     } catch (error) {
       next(error)
@@ -423,7 +456,7 @@ async function parseWithOpenAI(input: { text: string }): Promise<AiParseResult> 
       apiKey: process.env.OPENAI_API_KEY,
       baseURL: process.env.OPENAI_BASE_URL || undefined,
       maxRetries: 0,
-      timeout: Number(process.env.OPENAI_PARSE_TIMEOUT_MS ?? 20_000),
+      timeout: Number(process.env.AI_STROKE_PLANNER_TIMEOUT_MS ?? process.env.OPENAI_PARSE_TIMEOUT_MS ?? 45_000),
     })
     const completion = await client.chat.completions.create({
       model: process.env.OPENAI_PARSE_MODEL || 'gpt-4.1-mini',
@@ -443,7 +476,9 @@ async function parseWithOpenAI(input: { text: string }): Promise<AiParseResult> 
             '- delete/select target',
             '- undo/redo/clear/export',
             'Allowed shape: rectangle, ellipse, triangle, diamond, line.',
-            'Allowed assetId: elephant, cat, treeDiagram, tree, house, car, rocket.',
+            'Allowed assetId: elephant, cat, treeDiagram, tree, house, car, rocket, grassland.',
+            'For relative layout, create operations may include target. Example: {"action":"create","kind":"asset","assetId":"car","position":"right","target":{"type":"query","assetId":"tree"}}.',
+            'Allowed target: {"type":"last"}, {"type":"selected"}, {"type":"query","assetId":"tree"}, {"type":"query","shape":"ellipse","color":"red"}.',
             'Allowed colors: red, blue, green, yellow, black, white, gray, purple, orange, pink, brown, cyan.',
             'Allowed positions: top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right.',
             'Allowed sizes: small, medium, large.',
@@ -471,7 +506,7 @@ async function parseWithOpenAI(input: { text: string }): Promise<AiParseResult> 
 async function parseWithCompatibleChat(input: { text: string }, config: { url: string; apiKey: string; model: string }): Promise<AiParseResult> {
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), Number(process.env.AI_PARSER_TIMEOUT_MS ?? 20_000))
+    const timeout = setTimeout(() => controller.abort(), Number(process.env.AI_PARSER_TIMEOUT_MS ?? 35_000))
     const response = await fetch(config.url, {
       method: 'POST',
       headers: {
@@ -490,7 +525,9 @@ async function parseWithCompatibleChat(input: { text: string }, config: { url: s
               '允许 action: create, update, move, resize, delete, select, undo, redo, clear, export。',
               '允许 kind: shape, text, arrow, asset。',
               '允许 shape: rectangle, ellipse, triangle, diamond, line。',
-              '允许 assetId: elephant, cat, treeDiagram, tree, house, car, rocket。用户要求画这些对象时优先返回 create asset，而不是拼 ellipse/rectangle。',
+              '允许 assetId: elephant, cat, treeDiagram, tree, house, car, rocket, grassland。用户要求画这些对象时优先返回 create asset，而不是拼 ellipse/rectangle。',
+              '相对布局规则: 当用户说“在树旁边/汽车右边/房子附近”时，在 create 操作里返回 target。例如 {"action":"create","kind":"asset","assetId":"car","position":"right","target":{"type":"query","assetId":"tree"}}。',
+              'target 可用: {"type":"last"}、{"type":"selected"}、{"type":"query","assetId":"tree"}、{"type":"query","shape":"ellipse","color":"red"}。',
               '允许颜色: red, blue, green, yellow, black, white, gray, purple, orange, pink, brown, cyan。',
               '不要使用允许列表外的颜色。树干/木头用 brown；天空/玻璃可用 cyan；皮肤/浅色主体可用 pink 或 orange。',
               '允许位置: top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right。',
@@ -527,6 +564,103 @@ async function parseWithCompatibleChat(input: { text: string }, config: { url: s
     if (isTimeoutError(error) || (error instanceof DOMException && error.name === 'AbortError')) throw new Error('AI parser request timed out')
     throw error
   }
+}
+
+async function planStrokesWithOpenAI(input: { text: string }): Promise<AiParseResult> {
+  const compatibleConfig = getCompatibleAiParserConfig()
+  if (compatibleConfig) return planStrokesWithCompatibleChat(input, compatibleConfig)
+
+  try {
+    const client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+      baseURL: process.env.OPENAI_BASE_URL || undefined,
+      maxRetries: 0,
+      timeout: Number(process.env.OPENAI_PARSE_TIMEOUT_MS ?? 20_000),
+    })
+    const completion = await client.chat.completions.create({
+      model: process.env.OPENAI_PARSE_MODEL || 'gpt-4.1-mini',
+      temperature: 0.2,
+      messages: [
+        {
+          role: 'system',
+          content: createStrokePlannerPrompt(),
+        },
+        {
+          role: 'user',
+          content: input.text,
+        },
+      ],
+    })
+    const content = completion.choices[0]?.message?.content ?? ''
+    return applySemanticStrokeColors(parseStrokePlanResult(JSON.parse(extractJsonObject(content))), input.text)
+  } catch (error) {
+    if (isTimeoutError(error)) throw new Error('AI parser request timed out')
+    throw error
+  }
+}
+
+async function planStrokesWithCompatibleChat(input: { text: string }, config: { url: string; apiKey: string; model: string }): Promise<AiParseResult> {
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), Number(process.env.AI_STROKE_PLANNER_TIMEOUT_MS ?? 45_000))
+    const response = await fetch(config.url, {
+      method: 'POST',
+      headers: {
+        'api-key': config.apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: [
+          {
+            role: 'system',
+            content: createStrokePlannerPrompt(),
+          },
+          {
+            role: 'user',
+            content: input.text,
+          },
+        ],
+        max_completion_tokens: 1800,
+        temperature: 0.2,
+        top_p: 0.95,
+        stream: false,
+        thinking: {
+          type: 'disabled',
+        },
+      }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout))
+    const body = (await response.json()) as unknown
+    if (!response.ok) throw new Error(readProviderError(body) || `AI parser request failed with ${response.status}`)
+    return applySemanticStrokeColors(parseStrokePlanResult(JSON.parse(extractJsonObject(extractChatContent(body)))), input.text)
+  } catch (error) {
+    if (isTimeoutError(error) || (error instanceof DOMException && error.name === 'AbortError')) throw new Error('AI parser request timed out')
+    throw error
+  }
+}
+
+function createStrokePlannerPrompt() {
+  return [
+    '你是 AI 语音绘图工具的实验笔画规划器。',
+    '只返回 JSON，不要 markdown。',
+    'JSON 格式: {"operations":[],"normalizedText":"","confidence":0.8}',
+    '像人类画画一样按笔顺拆解：先大轮廓，再主体，再细节，再装饰。',
+    '不要使用 asset，不要粘贴素材，不要返回 externalElements。',
+    '允许 action 只有 create。',
+    '允许 kind 只有 shape 或 text。',
+    '允许 shape: rectangle, ellipse, triangle, diamond, line, path。',
+    '允许颜色: red, blue, green, yellow, black, white, gray, purple, orange, pink, brown, cyan。',
+    '画布尺寸 900x560。坐标必须在画布内。',
+    '每个 create 必须 selected:false。',
+    '复杂对象拆成 8-24 个笔画；简单对象拆成 4-10 个笔画。',
+    '自由手绘笔画优先用 shape:"path" + points:[[x,y],...]，用于树冠轮廓、草线、云线、山线、水波。',
+    '短直线用 shape:"line"，可用 rotation 表示草、毛发、枝条、速度线。',
+    '颜色规则: 河流/湖泊/水波用 blue 或 cyan；草和树冠用 green；树干/枝条用 brown；太阳用 yellow/orange；云用 white/gray。',
+    '圆形/太阳/月亮用 ellipse 时 width 等于 height。',
+    '草原不要画成一张图：用多条横向草线、短草叶、花点、地平线。',
+    '树不要画成素材：用 trunk rectangle、tree crown ellipses、branch lines 组合。',
+  ].join('\n')
 }
 
 function getTranscribeStatus(): TranscribeStatus {
@@ -719,7 +853,7 @@ function isAiParserInvalidResponse(error: unknown) {
 
 function parseCommandResult(value: unknown): AiParseResult {
   if (!isRecord(value) || !Array.isArray(value.operations)) throw new Error('AI_PARSER_INVALID_RESPONSE')
-  const operations = value.operations.map(parseDrawOperation)
+  const operations = value.operations.map((operation) => parseDrawOperation(operation, { minDimension: 24 }))
   return {
     operations,
     normalizedText: typeof value.normalizedText === 'string' ? value.normalizedText : '',
@@ -727,7 +861,84 @@ function parseCommandResult(value: unknown): AiParseResult {
   }
 }
 
-function parseDrawOperation(value: unknown): DrawOperation {
+function parseStrokePlanResult(value: unknown): AiParseResult {
+  if (!isRecord(value) || !Array.isArray(value.operations)) throw new Error('AI_PARSER_INVALID_RESPONSE')
+  const result = {
+    operations: value.operations.map((operation) => parseDrawOperation(normalizeStrokePlannerOperation(operation), { minDimension: 4 })),
+    normalizedText: typeof value.normalizedText === 'string' ? value.normalizedText : '',
+    confidence: typeof value.confidence === 'number' && Number.isFinite(value.confidence) ? clamp(value.confidence, 0, 1) : 0.7,
+  }
+  if (result.operations.length > 80) throw new Error('AI_PARSER_INVALID_RESPONSE')
+  for (const operation of result.operations) {
+    if (operation.action !== 'create') throw new Error('AI_PARSER_INVALID_RESPONSE')
+    if (operation.kind !== 'shape' && operation.kind !== 'text') throw new Error('AI_PARSER_INVALID_RESPONSE')
+    if (operation.kind === 'shape' && !operation.shape) throw new Error('AI_PARSER_INVALID_RESPONSE')
+    if (operation.assetId || operation.externalElements) throw new Error('AI_PARSER_INVALID_RESPONSE')
+    if (operation.selected !== false) throw new Error('AI_PARSER_INVALID_RESPONSE')
+  }
+  return result
+}
+
+function applySemanticStrokeColors(result: AiParseResult, text: string): AiParseResult {
+  const water = /河|水|湖|海|溪|瀑布|波浪/.test(text)
+  if (!water) return result
+  return {
+    ...result,
+    operations: result.operations.map((operation) => {
+      if (operation.action !== 'create' || operation.kind !== 'shape') return operation
+      if (operation.shape !== 'path' && operation.shape !== 'line') return operation
+      const fill = operation.fill === 'black' ? 'blue' : operation.fill
+      const stroke = operation.stroke === 'black' ? 'blue' : operation.stroke
+      return { ...operation, fill, stroke }
+    }),
+  }
+}
+
+function normalizeStrokePlannerOperation(value: unknown) {
+  if (!isRecord(value)) return value
+  const color = normalizeStrokePlannerColor(value.color)
+  const rawFill = normalizeStrokePlannerColor(value.fill) ?? color
+  const rawStroke = normalizeStrokePlannerColor(value.stroke) ?? color
+  const fallbackColor = rawStroke ?? rawFill ?? 'black'
+  const fill = value.kind === 'shape' && value.shape === 'line' ? fallbackColor : (rawFill ?? fallbackColor)
+  const stroke = rawStroke ?? fill
+  return {
+    ...value,
+    x: normalizeStrokeCoordinate(value.x, 900),
+    y: normalizeStrokeCoordinate(value.y, 560),
+    width: normalizeStrokeCoordinate(value.width, 900),
+    height: normalizeStrokeCoordinate(value.height, 560),
+    points: normalizeStrokePoints(value.points),
+    fill,
+    stroke,
+  }
+}
+
+function normalizeStrokePoints(value: unknown) {
+  if (!Array.isArray(value)) return value
+  return value
+    .map((point) => {
+      if (!Array.isArray(point) || typeof point[0] !== 'number' || typeof point[1] !== 'number') return null
+      const x = normalizeStrokeCoordinate(point[0], 900)
+      const y = normalizeStrokeCoordinate(point[1], 560)
+      return typeof x === 'number' && typeof y === 'number' ? [x, y] : null
+    })
+    .filter((point): point is [number, number] => Boolean(point))
+}
+
+function normalizeStrokePlannerColor(value: unknown) {
+  if (typeof value !== 'string') return undefined
+  if (value === 'none' || value === 'transparent') return undefined
+  return value
+}
+
+function normalizeStrokeCoordinate(value: unknown, canvasSize: number) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return value
+  if (value > 0 && value <= 1) return Math.round(value * canvasSize)
+  return value
+}
+
+function parseDrawOperation(value: unknown, options: { minDimension: number }): DrawOperation {
   if (!isRecord(value) || typeof value.action !== 'string') throw new Error('AI_PARSER_INVALID_RESPONSE')
   if (value.action === 'undo' || value.action === 'redo' || value.action === 'clear' || value.action === 'export') {
     return { action: value.action }
@@ -745,10 +956,14 @@ function parseDrawOperation(value: unknown): DrawOperation {
       stroke: parseOptionalColor(value.stroke),
       position: parseOptionalPosition(value.position),
       size: parseOptionalSize(value.size),
+      target: parseOptionalTarget(value.target),
       x: parseOptionalBoundedNumber(value.x, 0, 900),
       y: parseOptionalBoundedNumber(value.y, 0, 560),
-      width: parseOptionalBoundedNumber(value.width, 24, 500),
-      height: parseOptionalBoundedNumber(value.height, 24, 400),
+      width: parseOptionalBoundedNumber(value.width, options.minDimension, 500),
+      height: parseOptionalBoundedNumber(value.height, options.minDimension, 400),
+      points: parseOptionalPoints(value.points),
+      rotation: parseOptionalBoundedNumber(value.rotation, -360, 360),
+      selected: typeof value.selected === 'boolean' ? value.selected : undefined,
     })
   }
   if (value.action === 'update') {
@@ -799,6 +1014,7 @@ function parseTarget(value: unknown): DrawOperation extends infer _ ? NonNullabl
     return compactOperation({
       type: 'query',
       shape: value.shape === 'text' ? 'text' : parseOptionalShape(value.shape),
+      assetId: parseOptionalAssetId(value.assetId),
       color: parseOptionalColor(value.color),
       position: parseOptionalPosition(value.position),
       order: value.order === 'largest' || value.order === 'smallest' || value.order === 'first' || value.order === 'last' ? value.order : undefined,
@@ -807,14 +1023,33 @@ function parseTarget(value: unknown): DrawOperation extends infer _ ? NonNullabl
   return { type: 'last' }
 }
 
+function parseOptionalTarget(value: unknown) {
+  if (value === undefined || value === null) return undefined
+  return parseTarget(value)
+}
+
 function parseOptionalShape(value: unknown): ShapeKind | undefined {
   if (value === undefined || value === null) return undefined
-  if (value === 'rectangle' || value === 'ellipse' || value === 'triangle' || value === 'diamond' || value === 'line') return value
+  if (value === 'rectangle' || value === 'ellipse' || value === 'triangle' || value === 'diamond' || value === 'line' || value === 'path') return value
   throw new Error('AI_PARSER_INVALID_RESPONSE')
+}
+
+function parseOptionalPoints(value: unknown) {
+  if (value === undefined || value === null) return undefined
+  if (!Array.isArray(value)) throw new Error('AI_PARSER_INVALID_RESPONSE')
+  const points = value.map((point) => {
+    if (!Array.isArray(point) || point.length < 2) throw new Error('AI_PARSER_INVALID_RESPONSE')
+    const x = parseRequiredBoundedNumber(point[0], 0, 900)
+    const y = parseRequiredBoundedNumber(point[1], 0, 560)
+    return [x, y] as [number, number]
+  })
+  if (points.length < 2 || points.length > 80) throw new Error('AI_PARSER_INVALID_RESPONSE')
+  return points
 }
 
 function parseOptionalColor(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined
+  if (typeof value === 'string' && /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(value)) return value
   if (
     value === 'red' ||
     value === 'blue' ||

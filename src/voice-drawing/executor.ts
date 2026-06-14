@@ -1,4 +1,4 @@
-import type { DrawOperation, PositionName, ShapeKind, SizeName, TargetRef } from './types'
+import type { DrawOperation, Point, PositionName, ShapeKind, SizeName, TargetRef } from './types'
 import { renderItemAsRoughSvg } from './roughSvgRenderer'
 import { getVisualAsset } from './visualAssets'
 
@@ -17,6 +17,7 @@ export type CanvasItem = {
   y: number
   width: number
   height: number
+  points?: Point[]
   rotation?: number
   selected?: boolean
 }
@@ -68,6 +69,7 @@ const shapeLabels: Record<string, string> = {
   triangle: '三角形',
   diamond: '菱形',
   line: '线条',
+  path: '笔画',
 }
 
 export function createInitialCanvasState(): CanvasState {
@@ -136,7 +138,7 @@ function executeOne(state: CanvasState, operation: DrawOperation): ExecuteResult
 
   if (operation.action === 'create') {
     const id = `item-${state.nextId}`
-    const geometry = resolveCreateGeometry(operation)
+    const geometry = resolveCreateGeometry(base, operation)
     const item: CanvasItem = {
       id,
       kind: operation.kind,
@@ -152,6 +154,7 @@ function executeOne(state: CanvasState, operation: DrawOperation): ExecuteResult
       y: geometry.y,
       width: geometry.width,
       height: geometry.height,
+      points: operation.points,
       rotation: operation.rotation,
       selected: true,
     }
@@ -159,7 +162,7 @@ function executeOne(state: CanvasState, operation: DrawOperation): ExecuteResult
     return {
       state: {
         ...base,
-        items: [...base.items.map((entry) => ({ ...entry, selected: false })), { ...item, selected: shouldSelect }],
+        items: [...base.items.map((entry) => (entry.selected ? { ...entry, selected: false } : entry)), { ...item, selected: shouldSelect }],
         lastItemId: id,
         selectedItemIds: shouldSelect ? [id] : [],
         recentItemIds: [id, ...base.recentItemIds].slice(0, 12),
@@ -284,7 +287,8 @@ function resolveTargetId(state: CanvasState, target?: TargetRef) {
   const matches = state.items.filter((item) => {
     const shapeMatches = !target.shape || item.shape === target.shape || (target.shape === 'text' && item.kind === 'text')
     const colorMatches = !target.color || item.fill === target.color
-    return shapeMatches && colorMatches
+    const assetMatches = !target.assetId || item.assetId === target.assetId
+    return shapeMatches && colorMatches && assetMatches
   })
   if (target.order === 'largest') {
     return [...matches].sort((a, b) => b.width * b.height - a.width * a.height)[0]?.id ?? null
@@ -316,7 +320,16 @@ function resolveAssetSize(assetId: string | undefined, size: SizeName = 'medium'
   }
 }
 
-function resolveCreateGeometry(operation: Extract<DrawOperation, { action: 'create' }>) {
+function resolveCreateGeometry(state: CanvasState, operation: Extract<DrawOperation, { action: 'create' }>) {
+  if (operation.shape === 'path' && operation.points && operation.points.length >= 2) {
+    const xs = operation.points.map(([x]) => x)
+    const ys = operation.points.map(([, y]) => y)
+    const x = clamp(Math.round(Math.min(...xs)), 0, CANVAS.width)
+    const y = clamp(Math.round(Math.min(...ys)), 0, CANVAS.height)
+    const width = clamp(Math.round(Math.max(...xs) - x), 4, CANVAS.width - x)
+    const height = clamp(Math.round(Math.max(...ys) - y), 4, CANVAS.height - y)
+    return { x, y, width, height }
+  }
   const defaultSize =
     operation.kind === 'arrow'
       ? { width: 180, height: 24 }
@@ -329,13 +342,19 @@ function resolveCreateGeometry(operation: Extract<DrawOperation, { action: 'crea
     operation.shape === 'ellipse'
       ? { width: Math.min(explicitWidth, explicitHeight), height: Math.min(explicitWidth, explicitHeight) }
       : { width: explicitWidth, height: explicitHeight }
-  const defaultPosition = resolvePosition(operation.position ?? 'center', size.width, size.height)
-  return {
+  const anchorId = operation.target ? resolveTargetId(state, operation.target) : null
+  const anchor = anchorId ? state.items.find((item) => item.id === anchorId) : null
+  const defaultPosition = anchor
+    ? resolveRelativePosition(anchor, operation.position ?? 'right', size.width, size.height)
+    : resolvePosition(operation.position ?? 'center', size.width, size.height)
+  const requested = {
     x: clamp(Math.round(operation.x ?? defaultPosition.x), 0, CANVAS.width - size.width),
     y: clamp(Math.round(operation.y ?? defaultPosition.y), 0, CANVAS.height - size.height),
     width: size.width,
     height: size.height,
   }
+  if (operation.x !== undefined || operation.y !== undefined) return requested
+  return avoidOverlaps(requested, state.items.filter((item) => item.id !== anchor?.id), operation.position)
 }
 
 function resolvePosition(position: PositionName, width: number, height: number) {
@@ -362,6 +381,51 @@ function resolvePosition(position: PositionName, width: number, height: number) 
     'bottom-right': CANVAS.height - height - 64,
   }
   return { x: Math.round(xMap[position]), y: Math.round(yMap[position]) }
+}
+
+function resolveRelativePosition(anchor: CanvasItem, position: PositionName, width: number, height: number) {
+  const gap = 28
+  const centerX = anchor.x + anchor.width / 2 - width / 2
+  const centerY = anchor.y + anchor.height / 2 - height / 2
+  if (position === 'left') return { x: anchor.x - width - gap, y: centerY }
+  if (position === 'right') return { x: anchor.x + anchor.width + gap, y: centerY }
+  if (position === 'top') return { x: centerX, y: anchor.y - height - gap }
+  if (position === 'bottom') return { x: centerX, y: anchor.y + anchor.height + gap }
+  return resolvePosition(position, width, height)
+}
+
+function avoidOverlaps(geometry: Pick<CanvasItem, 'x' | 'y' | 'width' | 'height'>, items: CanvasItem[], preferredPosition?: PositionName) {
+  if (!items.some((item) => overlaps(geometry, item))) return geometry
+  const step = 32
+  const directions =
+    preferredPosition === 'left' || preferredPosition === 'right'
+      ? [
+          [0, -step],
+          [0, step],
+          [step, 0],
+          [-step, 0],
+        ]
+      : [
+          [step, 0],
+          [-step, 0],
+          [0, step],
+          [0, -step],
+        ]
+  for (let radius = 1; radius <= 8; radius += 1) {
+    for (const [dx, dy] of directions) {
+      const candidate = {
+        ...geometry,
+        x: clamp(geometry.x + dx * radius, 0, CANVAS.width - geometry.width),
+        y: clamp(geometry.y + dy * radius, 0, CANVAS.height - geometry.height),
+      }
+      if (!items.some((item) => overlaps(candidate, item))) return candidate
+    }
+  }
+  return geometry
+}
+
+function overlaps(a: Pick<CanvasItem, 'x' | 'y' | 'width' | 'height'>, b: Pick<CanvasItem, 'x' | 'y' | 'width' | 'height'>) {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 }
 
 function clamp(value: number, min: number, max: number) {

@@ -24,6 +24,23 @@ describe('renderItemAsRoughSvg', () => {
     expect(svg).toContain('--draw-duration:720ms')
   })
 
+  it('renders the same primitive shape deterministically to avoid flicker', () => {
+    const item: CanvasItem = {
+      id: 'shape-stable',
+      kind: 'shape',
+      shape: 'ellipse',
+      fill: 'yellow',
+      stroke: 'orange',
+      x: 140,
+      y: 86,
+      width: 120,
+      height: 120,
+      selected: false,
+    }
+
+    expect(renderItemAsRoughSvg(item)).toBe(renderItemAsRoughSvg(item))
+  })
+
   it('renders all visual asset strokes with sequential draw timing', () => {
     const item: CanvasItem = {
       id: 'item-1',

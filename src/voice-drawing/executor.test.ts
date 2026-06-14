@@ -149,6 +149,44 @@ describe('executeOperations', () => {
     expect(result.state.exportedSvg).not.toContain('<rect')
   })
 
+  it('creates and exports freehand path strokes from points', () => {
+    const result = executeOperations(createInitialCanvasState(), [
+      {
+        action: 'create',
+        kind: 'shape',
+        shape: 'path',
+        stroke: 'green',
+        fill: 'green',
+        points: [
+          [80, 420],
+          [130, 392],
+          [180, 430],
+          [240, 386],
+        ],
+        selected: false,
+      },
+      { action: 'export' },
+    ])
+
+    expect(result.state.items[0]).toMatchObject({
+      shape: 'path',
+      points: [
+        [80, 420],
+        [130, 392],
+        [180, 430],
+        [240, 386],
+      ],
+      x: 80,
+      y: 386,
+      width: 160,
+      height: 44,
+      selected: false,
+    })
+    expect(result.state.exportedSvg).toContain('M 80 420')
+    expect(result.state.exportedSvg).toContain('Q')
+    expect(result.state.exportedSvg).not.toContain('data-asset-id')
+  })
+
   it('exports visual assets as recognizable multi-stroke svg groups', () => {
     const result = executeOperations(createInitialCanvasState(), [
       {
@@ -192,6 +230,40 @@ describe('executeOperations', () => {
     expect(result.state.exportedSvg?.match(/asset-stroke/g)?.length).toBeGreaterThanOrEqual(8)
   })
 
+  it('exports grassland as separate scene strokes instead of a pasted asset', () => {
+    const result = executeOperations(createInitialCanvasState(), [
+      { action: 'create', kind: 'shape', shape: 'line', fill: 'green', stroke: 'green', x: 70, y: 360, width: 760, height: 20, selected: false },
+      { action: 'create', kind: 'shape', shape: 'line', fill: 'green', stroke: 'green', x: 120, y: 420, width: 44, height: 10, rotation: -62, selected: false },
+      { action: 'create', kind: 'shape', shape: 'ellipse', fill: 'yellow', stroke: 'orange', x: 430, y: 400, width: 24, height: 24, selected: false },
+      { action: 'export' },
+    ])
+
+    expect(result.state.items.every((item) => item.kind !== 'asset')).toBe(true)
+    expect(result.state.exportedSvg).not.toContain('data-asset-id="grassland"')
+    expect(result.state.exportedSvg?.match(/sketch-stroke/g)?.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('places a new asset beside an existing semantic anchor without overlap', () => {
+    const result = executeOperations(createInitialCanvasState(), [
+      { action: 'create', kind: 'asset', assetId: 'tree', fill: 'green', stroke: 'black', position: 'left', selected: false },
+      {
+        action: 'create',
+        kind: 'asset',
+        assetId: 'car',
+        fill: 'blue',
+        stroke: 'black',
+        position: 'right',
+        target: { type: 'query', assetId: 'tree' },
+        selected: false,
+      },
+    ])
+
+    const [tree, car] = result.state.items
+    expect(car.x).toBeGreaterThanOrEqual(tree.x + tree.width + 20)
+    expect(car.y + car.height).toBeGreaterThan(tree.y)
+    expect(tree.y + tree.height).toBeGreaterThan(car.y)
+  })
+
   it('keeps intermediate states for draw clear then draw commands', () => {
     const result = executeOperationsWithTimeline(createInitialCanvasState(), [
       { action: 'create', kind: 'asset', assetId: 'tree', fill: 'green', stroke: 'black', selected: false },
@@ -204,6 +276,15 @@ describe('executeOperations', () => {
     expect(result.timeline[1].items).toEqual([])
     expect(result.timeline[2].items.map((item) => item.assetId)).toEqual(['rocket'])
     expect(result.state.items.map((item) => item.assetId)).toEqual(['rocket'])
+  })
+
+  it('preserves unchanged item references across create operations to avoid replay flicker', () => {
+    const result = executeOperationsWithTimeline(createInitialCanvasState(), [
+      { action: 'create', kind: 'asset', assetId: 'tree', fill: 'green', stroke: 'black', selected: false },
+      { action: 'create', kind: 'asset', assetId: 'car', fill: 'blue', stroke: 'black', selected: false },
+    ])
+
+    expect(result.timeline[1].items[0]).toBe(result.timeline[0].items[0])
   })
 
   it('exports hydrated Excalidraw library assets as svg groups', () => {
