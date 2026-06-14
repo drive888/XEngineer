@@ -18,9 +18,9 @@
 
 ## 演示视频
 
-[![AI 语音绘图工具演示](docs/demo/demo-cover.png)](docs/demo/demo.mov)
+[点击观看在线演示视频](https://mcny7kjhv47b.feishu.cn/file/PqNDbNwEvoizKcxIdCycAQJmn6g?from=from_copylink)
 
-点击上方封面可查看录屏演示。GitHub README 对 `.mov` 的内联播放支持不稳定，因此这里采用封面图 + 视频文件链接的方式提交到仓库。
+视频已上传到飞书云文档，打开链接即可在线播放。仓库内仍保留 `docs/demo/demo.mov` 作为备份素材。
 
 ---
 
