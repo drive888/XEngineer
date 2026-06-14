@@ -1,16 +1,16 @@
 import { Cloud, Mic, MicOff, RotateCcw, RotateCw, Square, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Tldraw, type Editor, type TLComponents } from 'tldraw'
 import 'tldraw/tldraw.css'
-import { createInitialCanvasState, executeOperations, serializeSvg, type CanvasItem } from './voice-drawing/executor'
+import { createInitialCanvasState, executeOperations, executeOperationsWithTimeline, serializeSvg, type CanvasItem } from './voice-drawing/executor'
 import { parseCommandWithAi } from './voice-drawing/aiCommandParser'
 import { fetchBolnaMimoStatus, transcribeWithBolnaMimo, type BolnaMimoStatus } from './voice-drawing/bolnaMimoAsr'
 import { fetchVoiceStatus, transcribeAudio, type VoiceServiceStatus } from './voice-drawing/cloudTranscribe'
-import { createRevealFrames } from './voice-drawing/drawingAnimation'
+import { createTimelineRevealFrames } from './voice-drawing/drawingAnimation'
 import { hydrateExternalAssetOperations, resolveExternalLibraryAssetOperation } from './voice-drawing/excalidrawLibraryAssets'
 import { parseVoiceCommand } from './voice-drawing/parser'
 import { buildRealtimePreview, type RealtimePreview } from './voice-drawing/realtimePreview'
-import { fetchRealtimeAiStatus, type RealtimeAiStatus } from './voice-drawing/realtimeAi'
+import { connectOpenAIRealtime, fetchRealtimeAiStatus, type RealtimeAiStatus, type RealtimeConnection, type RealtimeDrawCommand } from './voice-drawing/realtimeAi'
 import { renderItemAsRoughSvg } from './voice-drawing/roughSvgRenderer'
 import { projectItemsToTldrawShapes, projectSelectionToTldrawIds } from './voice-drawing/tldrawAdapter'
 import type { DrawOperation } from './voice-drawing/types'
@@ -60,6 +60,7 @@ const demoCommands = [
   ['画机器人', '画一个机器人'],
   ['雪花图标', '画一个雪花数据仓库图标'],
   ['清空后火箭', '清空画布，然后画一个火箭'],
+  ['树后清除火箭', '先画一棵树，清除画布后，画一个火箭'],
   ['登录页草图', '帮我画一个登录页面草图，有标题、输入框和按钮'],
 ] as const
 
@@ -84,11 +85,13 @@ export function App() {
   const [realtimeAiStatus, setRealtimeAiStatus] = useState<RealtimeAiStatus | null>(null)
   const [recordingCloud, setRecordingCloud] = useState(false)
   const [recordingBolnaMimo, setRecordingBolnaMimo] = useState(false)
+  const [recordingRealtimeAi, setRecordingRealtimeAi] = useState(false)
   const [preview, setPreview] = useState<RealtimePreview | null>(null)
   const logIdRef = useRef(1)
   const canvasStateRef = useRef(initialState)
   const renderTimersRef = useRef<number[]>([])
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const realtimeConnectionRef = useRef<RealtimeConnection | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const bolnaRecorderRef = useRef<{
     context: AudioContext
@@ -108,11 +111,11 @@ export function App() {
     window.speechSynthesis.speak(utterance)
   }, [])
 
-  const animateToState = useCallback((previousState: typeof initialState, nextState: typeof initialState) => {
+  const animateTimeline = useCallback((previousState: typeof initialState, timeline: typeof initialState[]) => {
     renderTimersRef.current.forEach((timer) => window.clearTimeout(timer))
     renderTimersRef.current = []
     const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    const frames = prefersReducedMotion ? [nextState] : createRevealFrames(previousState, nextState)
+    const frames = prefersReducedMotion ? [timeline.at(-1) ?? previousState] : createTimelineRevealFrames(previousState, timeline)
     if (frames.length > 1) setStatus(`绘制中 1/${frames.length}`)
     frames.forEach((frame, index) => {
       const timer = window.setTimeout(() => {
@@ -121,16 +124,6 @@ export function App() {
       }, prefersReducedMotion ? 0 : index * 320)
       renderTimersRef.current.push(timer)
     })
-  }, [])
-
-  const finishAssetAnimationStatus = useCallback((operations: DrawOperation[], hasErrors: boolean) => {
-    if (hasErrors || !operations.some((operation) => operation.action === 'create' && operation.kind === 'asset')) return false
-    setStatus('绘制中')
-    const timer = window.setTimeout(() => {
-      setStatus('绘制完成')
-    }, 1100)
-    renderTimersRef.current.push(timer)
-    return true
   }, [])
 
   const runCommand = useCallback(
@@ -148,13 +141,13 @@ export function App() {
           const externalOperation = await resolveExternalLibraryAssetOperation(text)
           if (externalOperation) {
             const previousState = canvasStateRef.current
-            const result = executeOperations(previousState, [externalOperation])
+            const result = executeOperationsWithTimeline(previousState, [externalOperation])
             canvasStateRef.current = result.state
             setCanvasState(result.state)
-            animateToState(previousState, result.state)
+            animateTimeline(previousState, result.timeline)
             const elapsed = Math.round(performance.now() - started)
             const message = [...result.messages, ...result.errors].join('；') || '无操作'
-            if (!finishAssetAnimationStatus([externalOperation], result.errors.length > 0)) setStatus(result.errors.length ? '执行失败' : `素材已执行 ${elapsed}ms`)
+            setStatus(result.errors.length ? '执行失败' : `素材已执行 ${elapsed}ms`)
             speak(message)
             setLogs((entries) => [
               {
@@ -177,13 +170,13 @@ export function App() {
           const aiParsed = await parseCommandWithAi(text)
           const aiOperations = await hydrateExternalAssetOperations(aiParsed.operations)
           const previousState = canvasStateRef.current
-          const result = executeOperations(previousState, aiOperations)
+          const result = executeOperationsWithTimeline(previousState, aiOperations)
           canvasStateRef.current = result.state
           setCanvasState(result.state)
-          animateToState(previousState, result.state)
+          animateTimeline(previousState, result.timeline)
           const elapsed = Math.round(performance.now() - started)
           const message = [...result.messages, ...result.errors].join('；') || '无操作'
-          if (!finishAssetAnimationStatus(aiParsed.operations, result.errors.length > 0)) setStatus(result.errors.length ? '执行失败' : `AI 已执行 ${elapsed}ms`)
+          setStatus(result.errors.length ? '执行失败' : `AI 已执行 ${elapsed}ms`)
           speak(message)
           setLogs((entries) => [
             {
@@ -226,13 +219,13 @@ export function App() {
       const previousState = canvasStateRef.current
       setStatus('加载素材中')
       const operations = await hydrateExternalAssetOperations(parsed.operations)
-      const result = executeOperations(previousState, operations)
+      const result = executeOperationsWithTimeline(previousState, operations)
       canvasStateRef.current = result.state
       setCanvasState(result.state)
-      animateToState(previousState, result.state)
+      animateTimeline(previousState, result.timeline)
       const elapsed = Math.round(performance.now() - started)
       const message = [...result.messages, ...result.errors].join('；') || '无操作'
-      if (!finishAssetAnimationStatus(operations, result.errors.length > 0)) setStatus(result.errors.length ? '执行失败' : `已执行 ${elapsed}ms`)
+      setStatus(result.errors.length ? '执行失败' : `已执行 ${elapsed}ms`)
       speak(message)
       setLogs((entries) => [
         {
@@ -246,12 +239,57 @@ export function App() {
         ...entries,
       ])
     },
-    [animateToState, finishAssetAnimationStatus, speak],
+    [animateTimeline, speak],
+  )
+
+  const runRealtimeDrawCommand = useCallback(
+    async (command: RealtimeDrawCommand) => {
+      const safePreviewOperations = command.operations
+        .filter((operation) => operation.action === 'create')
+        .map((operation) => ({ ...operation, selected: false }))
+
+      if (!command.isFinal) {
+        if (safePreviewOperations.length === 0) return
+        const result = executeOperations(canvasStateRef.current, safePreviewOperations)
+        setPreview({
+          key: command.normalizedText || JSON.stringify(safePreviewOperations),
+          text: command.normalizedText || 'Realtime AI 草稿',
+          state: result.state,
+        })
+        setStatus('Realtime AI 预览中')
+        return
+      }
+
+      setPreview(null)
+      const previousState = canvasStateRef.current
+      setStatus('Realtime AI 执行中')
+      const operations = await hydrateExternalAssetOperations(command.operations)
+      const result = executeOperationsWithTimeline(previousState, operations)
+      canvasStateRef.current = result.state
+      setCanvasState(result.state)
+      animateTimeline(previousState, result.timeline)
+      const message = [...result.messages, ...result.errors].join('；') || '无操作'
+      setStatus(result.errors.length ? '执行失败' : 'Realtime AI 已执行')
+      speak(message)
+      setLogs((entries) => [
+        {
+          id: logIdRef.current++,
+          heard: command.normalizedText || 'Realtime AI',
+          normalized: command.normalizedText,
+          operations: JSON.stringify(formatOperationsForLog(operations)),
+          result: message,
+          provider: command.provider ?? 'openai-realtime',
+        },
+        ...entries,
+      ])
+    },
+    [animateTimeline, speak],
   )
 
   useEffect(() => {
     return () => {
       renderTimersRef.current.forEach((timer) => window.clearTimeout(timer))
+      realtimeConnectionRef.current?.stop()
     }
   }, [])
 
@@ -438,6 +476,37 @@ export function App() {
     setRecordingBolnaMimo(true)
   }, [bolnaMimoStatus, recordingBolnaMimo, runCommand])
 
+  const toggleRealtimeAiRecording = useCallback(async () => {
+    if (recordingRealtimeAi) {
+      realtimeConnectionRef.current?.stop()
+      realtimeConnectionRef.current = null
+      setRecordingRealtimeAi(false)
+      setPreview(null)
+      setStatus('Realtime AI 已停止')
+      return
+    }
+
+    if (!realtimeAiStatus?.available) {
+      setStatus(realtimeAiStatus?.reason ?? 'Realtime AI 未配置')
+      return
+    }
+
+    try {
+      setRecordingRealtimeAi(true)
+      realtimeConnectionRef.current = await connectOpenAIRealtime({
+        onDrawCommand: (command) => {
+          void runRealtimeDrawCommand(command)
+        },
+        onStatus: setStatus,
+      })
+    } catch (error) {
+      realtimeConnectionRef.current?.stop()
+      realtimeConnectionRef.current = null
+      setRecordingRealtimeAi(false)
+      setStatus(error instanceof Error ? error.message : 'Realtime AI 连接失败')
+    }
+  }, [realtimeAiStatus, recordingRealtimeAi, runRealtimeDrawCommand])
+
   return (
     <main className="app-shell">
       <section className="control-strip" aria-label="语音控制">
@@ -462,6 +531,10 @@ export function App() {
           <button className="icon-button" type="button" onClick={toggleBolnaMimoRecording}>
             {recordingBolnaMimo ? <Square aria-hidden="true" /> : <Cloud aria-hidden="true" />}
             <span>{recordingBolnaMimo ? '结束 MiMo' : 'Bolna MiMo'}</span>
+          </button>
+          <button className="icon-button" type="button" onClick={toggleRealtimeAiRecording}>
+            {recordingRealtimeAi ? <Square aria-hidden="true" /> : <Mic aria-hidden="true" />}
+            <span>{recordingRealtimeAi ? '结束实时 AI' : 'Realtime AI'}</span>
           </button>
           <button className="icon-button" type="button" onClick={() => runSystemOperation('撤销')}>
             <RotateCcw aria-hidden="true" />
@@ -510,7 +583,7 @@ export function App() {
               Web Speech: {speech.supported ? '可用' : '不可用'}；云端转写:{' '}
               {voiceStatus?.transcribeAvailable ? '可用' : voiceStatus?.reason || '检测中'}；Bolna MiMo:{' '}
               {bolnaMimoStatus?.available ? '可用' : bolnaMimoStatus?.reason || '检测中'}；Realtime AI:{' '}
-              {realtimeAiStatus?.available ? `${realtimeAiStatus.model} 可用` : realtimeAiStatus?.reason || '检测中'}
+              {realtimeAiStatus?.available ? `${realtimeAiStatus.model} 可用` : realtimeAiStatus?.reason || '检测中'}；Gemini Live: 待完成
             </p>
           </div>
           <div className="transcript-box">
@@ -567,10 +640,10 @@ function TldrawCanvasView({ items, selectedItemIds }: { items: CanvasItem[]; sel
   )
 }
 
-function RoughCanvasItemView({ item, preview = false }: { item: CanvasItem; preview?: boolean }) {
+const RoughCanvasItemView = memo(function RoughCanvasItemView({ item, preview = false }: { item: CanvasItem; preview?: boolean }) {
   const className = [item.selected ? 'selected-shape' : '', preview ? 'preview-shape' : ''].filter(Boolean).join(' ') || undefined
   return <g className={className} dangerouslySetInnerHTML={{ __html: renderItemAsRoughSvg(item) }} />
-}
+})
 
 function formatOperationsForLog(operations: DrawOperation[]) {
   return operations.map((operation) => {

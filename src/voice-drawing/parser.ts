@@ -62,6 +62,7 @@ export function parseVoiceCommand(input: string): ParseResult {
 
 function splitSteps(text: string) {
   return text
+    .replace(/(清空|清除|清理|擦掉)画布后/g, '$1画布,')
     .split(/然后|接着|再|,/)
     .map((step) => step.trim())
     .filter(Boolean)
@@ -70,7 +71,7 @@ function splitSteps(text: string) {
 function parseStep(text: string): DrawOperation[] {
   if (/^撤销$/.test(text)) return [{ action: 'undo' }]
   if (/^重做$/.test(text)) return [{ action: 'redo' }]
-  if (/清空/.test(text)) return [{ action: 'clear' }]
+  if (/清空|清除|清理|擦掉/.test(text) && /画布|全部|所有/.test(text)) return [{ action: 'clear' }]
   if (/导出|保存作品|保存图片/.test(text)) return [{ action: 'export' }]
   if (/删除/.test(text)) return [{ action: 'delete', target: { type: 'last' } }]
   if (/太阳/.test(text) && /云/.test(text)) return createSunCloudSceneTemplate()

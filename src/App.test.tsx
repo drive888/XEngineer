@@ -111,6 +111,8 @@ describe('App speech fallback', () => {
     expect(screen.getByText(/Web Speech: 不可用/)).toBeInTheDocument()
     expect(screen.getByText(/Realtime AI:/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Bolna MiMo' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Gemini Live' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Gemini Live: 待完成/)).toBeInTheDocument()
     expect(screen.getByLabelText('tldraw 语音绘图画布')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '画红色圆形' }))
@@ -166,6 +168,45 @@ describe('App speech fallback', () => {
     expect(screen.getByText('Bolna MiMo 录音中')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '结束 MiMo' })).toBeInTheDocument()
   })
+
+  it('does not remount existing drawing strokes when Bolna MiMo recording starts', async () => {
+    const user = userEvent.setup()
+    const disconnect = vi.fn()
+    const stop = vi.fn()
+    const stream = {
+      getTracks: () => [{ stop }],
+    }
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn(async () => stream) },
+    })
+    vi.stubGlobal('MediaRecorder', undefined)
+    class FakeAudioContext {
+      sampleRate = 16_000
+      destination = {}
+      createMediaStreamSource = () => ({ connect: vi.fn(), disconnect })
+      createScriptProcessor = () => ({ connect: vi.fn(), disconnect, onaudioprocess: null })
+      close = vi.fn()
+    }
+    vi.stubGlobal('AudioContext', FakeAudioContext)
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    )
+
+    await user.click(screen.getByRole('button', { name: '画树' }))
+    await waitFor(() => expect(screen.getByText('绘制完成')).toBeInTheDocument(), { timeout: 7000 })
+    const mirror = screen.getByRole('img', { name: '语音绘图画布' })
+    const firstStroke = mirror.querySelector('[data-asset-id="tree"] .asset-stroke')
+    expect(firstStroke).not.toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Bolna MiMo' }))
+
+    expect(screen.getByText('Bolna MiMo 录音中')).toBeInTheDocument()
+    expect(mirror.querySelector('[data-asset-id="tree"] .asset-stroke')).toBe(firstStroke)
+  }, 10_000)
 
   it('uses AI parser for complex free-form drawing intent', async () => {
     const user = userEvent.setup()

@@ -1,6 +1,7 @@
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express, { type ErrorRequestHandler } from 'express'
+import { GoogleGenAI } from '@google/genai'
 import multer from 'multer'
 import OpenAI, { toFile } from 'openai'
 import type { DrawOperation, PositionName, ShapeKind, SizeName } from '../voice-drawing/types'
@@ -30,6 +31,7 @@ type TranscribeAudioFile = (input: TranscribeInput) => Promise<string>
 type TranscribeBolnaMimo = (input: TranscribeInput) => Promise<{ text: string; latencyMs: number }>
 type ParseCommandWithAi = (input: { text: string }) => Promise<AiParseResult>
 type CreateRealtimeSession = () => Promise<RealtimeSessionResult>
+type CreateGeminiLiveToken = () => Promise<GeminiLiveTokenResult>
 
 interface AiParseResult {
   readonly operations: DrawOperation[]
@@ -46,11 +48,22 @@ interface RealtimeSessionResult {
   }
 }
 
+interface GeminiLiveTokenResult {
+  readonly provider: 'gemini-live'
+  readonly model: string
+  readonly accessToken: {
+    readonly value: string
+    readonly expiresAt?: string
+  }
+  readonly websocketUrl: string
+}
+
 interface CreateServerAppOptions {
   readonly transcribeAudioFile?: TranscribeAudioFile
   readonly transcribeBolnaMimo?: TranscribeBolnaMimo
   readonly parseCommandWithAi?: ParseCommandWithAi
   readonly createRealtimeSession?: CreateRealtimeSession
+  readonly createGeminiLiveToken?: CreateGeminiLiveToken
 }
 
 export function createServerApp(options: CreateServerAppOptions = {}) {
@@ -59,6 +72,7 @@ export function createServerApp(options: CreateServerAppOptions = {}) {
   const transcribeBolnaMimo = options.transcribeBolnaMimo ?? transcribeWithBolnaMimo
   const parseCommandWithAi = options.parseCommandWithAi ?? parseWithOpenAI
   const createRealtimeSession = options.createRealtimeSession ?? createOpenAIRealtimeSession
+  const createGeminiLiveToken = options.createGeminiLiveToken ?? createGeminiLiveEphemeralToken
 
   app.use(cors())
   app.use(express.json())
@@ -76,6 +90,7 @@ export function createServerApp(options: CreateServerAppOptions = {}) {
   app.get('/api/realtime/status', (_request, response) => {
     response.json({
       openaiRealtime: getOpenAIRealtimeStatus(),
+      geminiLive: getGeminiLiveStatus(),
     })
   })
 
@@ -91,6 +106,23 @@ export function createServerApp(options: CreateServerAppOptions = {}) {
       }
 
       response.json(await createRealtimeSession())
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  app.post('/api/realtime/gemini/token', async (_request, response, next) => {
+    try {
+      const status = getGeminiLiveStatus()
+      if (!status.available) {
+        response.status(503).json({
+          error: 'GEMINI_LIVE_UNAVAILABLE',
+          message: status.reason,
+        })
+        return
+      }
+
+      response.json(await createGeminiLiveToken())
     } catch (error) {
       next(error)
     }
@@ -202,13 +234,15 @@ export function createServerApp(options: CreateServerAppOptions = {}) {
 
 async function createOpenAIRealtimeSession(): Promise<RealtimeSessionResult> {
   const model = getRealtimeModel()
+  const credential = getOpenAIRealtimeCredential()
+  if (!credential.available) throw new Error(credential.reason)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), Number(process.env.OPENAI_REALTIME_TIMEOUT_MS ?? 10_000))
   try {
     const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${credential.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -230,6 +264,32 @@ async function createOpenAIRealtimeSession(): Promise<RealtimeSessionResult> {
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw new Error('OpenAI Realtime session request timed out')
     throw error
+  }
+}
+
+async function createGeminiLiveEphemeralToken(): Promise<GeminiLiveTokenResult> {
+  const status = getGeminiLiveStatus()
+  if (!status.available) throw new Error(status.reason)
+  const model = getGeminiLiveModel()
+  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
+  const expireTime = new Date(Date.now() + Number(process.env.GEMINI_LIVE_TOKEN_TTL_MS ?? 30 * 60 * 1000)).toISOString()
+  const newSessionExpireTime = new Date(Date.now() + Number(process.env.GEMINI_LIVE_NEW_SESSION_TTL_MS ?? 60 * 1000)).toISOString()
+  const token = await client.authTokens.create({
+    config: {
+      uses: 1,
+      expireTime,
+      newSessionExpireTime,
+      httpOptions: { apiVersion: 'v1alpha' },
+    },
+  })
+  if (!token.name) throw new Error('GEMINI_LIVE_INVALID_RESPONSE')
+  return {
+    provider: 'gemini-live',
+    model,
+    accessToken: {
+      value: token.name,
+    },
+    websocketUrl: `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(token.name)}`,
   }
 }
 
@@ -497,16 +557,54 @@ function getAiParserStatus() {
 }
 
 function getOpenAIRealtimeStatus() {
+  const credential = getOpenAIRealtimeCredential()
   return {
-    available: Boolean(process.env.OPENAI_API_KEY),
-    reason: process.env.OPENAI_API_KEY ? 'OpenAI Realtime is configured' : 'OPENAI_API_KEY is not configured',
+    available: credential.available,
+    reason: credential.reason,
     model: getRealtimeModel(),
+  }
+}
+
+function getGeminiLiveStatus() {
+  return {
+    available: Boolean(process.env.GEMINI_API_KEY),
+    reason: process.env.GEMINI_API_KEY ? 'Gemini Live is configured' : 'GEMINI_API_KEY is not configured',
+    model: getGeminiLiveModel(),
+  }
+}
+
+function getOpenAIRealtimeCredential():
+  | { available: true; reason: string; apiKey: string }
+  | { available: false; reason: string; apiKey?: never } {
+  const apiKey = process.env.OPENAI_REALTIME_API_KEY || process.env.OPENAI_API_KEY
+  if (!apiKey || apiKey === 'undefined' || apiKey === 'null') {
+    return {
+      available: false,
+      reason: 'OPENAI_API_KEY is not configured',
+    }
+  }
+  if (/^sk-?route/i.test(apiKey) || /^sk-router/i.test(apiKey)) {
+    return {
+      available: false,
+      reason: 'OpenAI Realtime requires an official OpenAI API key; router keys are not supported',
+    }
+  }
+  return {
+    available: true,
+    reason: process.env.OPENAI_REALTIME_API_KEY ? 'OpenAI Realtime is configured with OPENAI_REALTIME_API_KEY' : 'OpenAI Realtime is configured',
+    apiKey,
   }
 }
 
 function getRealtimeModel() {
   const configured = process.env.OPENAI_REALTIME_MODEL
   if (!configured || configured === 'undefined' || configured === 'null') return 'gpt-realtime'
+  return configured
+}
+
+function getGeminiLiveModel() {
+  const configured = process.env.GEMINI_LIVE_MODEL
+  if (!configured || configured === 'undefined' || configured === 'null') return 'gemini-3.1-flash-live-preview'
   return configured
 }
 

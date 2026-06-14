@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createInitialCanvasState, executeOperations } from './executor'
+import { createInitialCanvasState, executeOperations, executeOperationsWithTimeline } from './executor'
 import type { DrawOperation } from './types'
 
 describe('executeOperations', () => {
@@ -192,6 +192,20 @@ describe('executeOperations', () => {
     expect(result.state.exportedSvg?.match(/asset-stroke/g)?.length).toBeGreaterThanOrEqual(8)
   })
 
+  it('keeps intermediate states for draw clear then draw commands', () => {
+    const result = executeOperationsWithTimeline(createInitialCanvasState(), [
+      { action: 'create', kind: 'asset', assetId: 'tree', fill: 'green', stroke: 'black', selected: false },
+      { action: 'clear' },
+      { action: 'create', kind: 'asset', assetId: 'rocket', fill: 'red', stroke: 'black', selected: false },
+    ])
+
+    expect(result.timeline).toHaveLength(3)
+    expect(result.timeline[0].items.map((item) => item.assetId)).toEqual(['tree'])
+    expect(result.timeline[1].items).toEqual([])
+    expect(result.timeline[2].items.map((item) => item.assetId)).toEqual(['rocket'])
+    expect(result.state.items.map((item) => item.assetId)).toEqual(['rocket'])
+  })
+
   it('exports hydrated Excalidraw library assets as svg groups', () => {
     const result = executeOperations(createInitialCanvasState(), [
       {
@@ -259,8 +273,9 @@ describe('executeOperations', () => {
     ])
 
     expect(result.state.exportedSvg).toContain('--draw-delay:0ms')
-    expect(result.state.exportedSvg).toContain('--draw-delay:140ms')
-    expect(result.state.exportedSvg).toContain('--draw-delay:280ms')
+    expect(result.state.exportedSvg).toContain('--draw-delay:180ms')
+    expect(result.state.exportedSvg).toContain('--draw-delay:360ms')
+    expect(result.state.exportedSvg).toContain('--draw-duration:900ms')
     expect(result.state.exportedSvg).toContain('asset-fill')
   })
 

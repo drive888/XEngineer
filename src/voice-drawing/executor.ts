@@ -41,6 +41,10 @@ export type ExecuteResult = {
   errors: string[]
 }
 
+export type ExecuteTimelineResult = ExecuteResult & {
+  timeline: CanvasState[]
+}
+
 const CANVAS = { width: 900, height: 560 }
 
 const colorLabels: Record<string, string> = {
@@ -90,6 +94,21 @@ export function executeOperations(start: CanvasState, operations: DrawOperation[
       }
     },
     { state: start, messages: [], errors: [] },
+  )
+}
+
+export function executeOperationsWithTimeline(start: CanvasState, operations: DrawOperation[]): ExecuteTimelineResult {
+  return operations.reduce<ExecuteTimelineResult>(
+    (result, operation) => {
+      const next = executeOne(result.state, operation)
+      return {
+        state: next.state,
+        messages: [...result.messages, ...next.messages],
+        errors: [...result.errors, ...next.errors],
+        timeline: [...result.timeline, next.state],
+      }
+    },
+    { state: start, messages: [], errors: [], timeline: [] },
   )
 }
 

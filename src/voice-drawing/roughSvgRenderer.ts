@@ -38,9 +38,10 @@ export function renderItemAsRoughSvg(item: CanvasItem) {
   const drawable = createDrawable(item, options)
   const paths = generator.toPaths(drawable)
   const content = paths
-    .map((path) => {
+    .map((path, index) => {
       const fill = path.fill && path.fill !== 'none' ? path.fill : 'none'
-      return `<path d="${path.d}" stroke="${path.stroke}" stroke-width="${path.strokeWidth}" fill="${fill}" stroke-linecap="round" stroke-linejoin="round" />`
+      const className = fill === 'none' ? 'sketch-stroke' : 'sketch-stroke asset-fill'
+      return `<path class="${className}" d="${path.d}" stroke="${path.stroke}" stroke-width="${path.strokeWidth}" fill="${fill}" stroke-linecap="round" stroke-linejoin="round" style="--draw-delay:${index * 120}ms;--draw-duration:720ms" />`
     })
     .join('')
   const rotation = item.rotation ? ` transform="rotate(${item.rotation} ${item.x + item.width / 2} ${item.y + item.height / 2})"` : ''
@@ -59,7 +60,7 @@ function renderVisualAsset(item: CanvasItem) {
       const fillColor = stroke.fill ? toColor(stroke.fill) : 'none'
       const strokeWidth = stroke.width ?? 2.4
       const delay = stroke.delay ?? index
-      return `<path class="asset-stroke sketch-stroke" d="${stroke.d}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill="${fillColor}" stroke-linecap="round" stroke-linejoin="round" style="--draw-delay:${delay * 70}ms" />`
+      return `<path class="asset-stroke sketch-stroke" d="${stroke.d}" stroke="${strokeColor}" stroke-width="${strokeWidth}" fill="${fillColor}" stroke-linecap="round" stroke-linejoin="round" style="--draw-delay:${delay * 180}ms;--draw-duration:900ms" />`
     })
     .join('')
   const rotation = item.rotation ? ` rotate(${item.rotation} ${asset.defaultWidth / 2} ${asset.defaultHeight / 2})` : ''
@@ -99,8 +100,8 @@ function renderExternalElement(element: ExcalidrawElement, index = 0) {
   const fill = normalizeExternalColor(element.backgroundColor, 'none')
   const opacity = typeof element.opacity === 'number' ? element.opacity / 100 : 1
   const strokeWidth = 2.2
-  const delay = index * 140
-  const drawStyle = `style="--draw-delay:${delay}ms"`
+  const delay = index * 180
+  const drawStyle = `style="--draw-delay:${delay}ms;--draw-duration:900ms"`
   const common = `stroke="${stroke}" stroke-width="${strokeWidth}" fill="${fill}" opacity="${opacity}" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" ${drawStyle}`
   const transform = element.angle ? ` transform="rotate(${(element.angle * 180) / Math.PI} ${element.x + (element.width ?? 0) / 2} ${element.y + (element.height ?? 0) / 2})"` : ''
 

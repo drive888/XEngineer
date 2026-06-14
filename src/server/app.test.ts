@@ -4,10 +4,16 @@ import { createServerApp } from './app'
 
 const originalApiKey = process.env.OPENAI_API_KEY
 const originalRealtimeModel = process.env.OPENAI_REALTIME_MODEL
+const originalRealtimeApiKey = process.env.OPENAI_REALTIME_API_KEY
+const originalGeminiApiKey = process.env.GEMINI_API_KEY
+const originalGeminiLiveModel = process.env.GEMINI_LIVE_MODEL
 
 afterEach(() => {
   process.env.OPENAI_API_KEY = originalApiKey
   process.env.OPENAI_REALTIME_MODEL = originalRealtimeModel
+  process.env.OPENAI_REALTIME_API_KEY = originalRealtimeApiKey
+  process.env.GEMINI_API_KEY = originalGeminiApiKey
+  process.env.GEMINI_LIVE_MODEL = originalGeminiLiveModel
   vi.unstubAllGlobals()
 })
 
@@ -467,6 +473,7 @@ describe('ai command parser api', () => {
 describe('realtime ai api', () => {
   it('reports realtime ai missing configuration', async () => {
     delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_REALTIME_API_KEY
 
     const response = await request(createServerApp()).get('/api/realtime/status')
 
@@ -477,11 +484,17 @@ describe('realtime ai api', () => {
         reason: 'OPENAI_API_KEY is not configured',
         model: 'gpt-realtime',
       },
+      geminiLive: {
+        available: Boolean(process.env.GEMINI_API_KEY),
+        reason: process.env.GEMINI_API_KEY ? 'Gemini Live is configured' : 'GEMINI_API_KEY is not configured',
+        model: 'gemini-3.1-flash-live-preview',
+      },
     })
   })
 
   it('creates an OpenAI Realtime ephemeral session without exposing the standard api key', async () => {
     process.env.OPENAI_API_KEY = 'test-standard-key'
+    delete process.env.OPENAI_REALTIME_API_KEY
     process.env.OPENAI_REALTIME_MODEL = 'gpt-realtime'
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -525,6 +538,7 @@ describe('realtime ai api', () => {
 
   it('returns 503 when realtime session is requested without an api key', async () => {
     delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_REALTIME_API_KEY
 
     const response = await request(createServerApp()).post('/api/realtime/openai/session')
 
@@ -533,5 +547,92 @@ describe('realtime ai api', () => {
       error: 'REALTIME_UNAVAILABLE',
       message: 'OPENAI_API_KEY is not configured',
     })
+  })
+
+  it('rejects router keys for OpenAI Realtime before calling the provider', async () => {
+    process.env.OPENAI_API_KEY = 'sk-router-test'
+    delete process.env.OPENAI_REALTIME_API_KEY
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const statusResponse = await request(createServerApp()).get('/api/realtime/status')
+    const sessionResponse = await request(createServerApp()).post('/api/realtime/openai/session')
+
+    expect(statusResponse.body.openaiRealtime).toEqual({
+      available: false,
+      reason: 'OpenAI Realtime requires an official OpenAI API key; router keys are not supported',
+      model: 'gpt-realtime',
+    })
+    expect(sessionResponse.status).toBe(503)
+    expect(sessionResponse.body).toEqual({
+      error: 'REALTIME_UNAVAILABLE',
+      message: 'OpenAI Realtime requires an official OpenAI API key; router keys are not supported',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('prefers OPENAI_REALTIME_API_KEY for OpenAI Realtime sessions', async () => {
+    process.env.OPENAI_API_KEY = 'sk-router-test'
+    process.env.OPENAI_REALTIME_API_KEY = 'sk-official-realtime'
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        value: 'ek_test_ephemeral',
+      }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const response = await request(createServerApp()).post('/api/realtime/openai/session')
+
+    expect(response.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.openai.com/v1/realtime/client_secrets',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer sk-official-realtime',
+        }),
+      }),
+    )
+  })
+
+  it('reports gemini live missing configuration', async () => {
+    delete process.env.GEMINI_API_KEY
+
+    const response = await request(createServerApp()).get('/api/realtime/status')
+
+    expect(response.body.geminiLive).toEqual({
+      available: false,
+      reason: 'GEMINI_API_KEY is not configured',
+      model: 'gemini-3.1-flash-live-preview',
+    })
+  })
+
+  it('creates a Gemini Live ephemeral token without exposing the standard api key', async () => {
+    process.env.GEMINI_API_KEY = 'test-gemini-key'
+    process.env.GEMINI_LIVE_MODEL = 'gemini-3.1-flash-live-preview'
+    const createGeminiLiveToken = vi.fn().mockResolvedValue({
+      provider: 'gemini-live',
+      model: 'gemini-3.1-flash-live-preview',
+      accessToken: { value: 'ephemeral-token' },
+      websocketUrl:
+        'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=ephemeral-token',
+    })
+
+    const response = await request(
+      createServerApp({
+        createGeminiLiveToken,
+      }),
+    ).post('/api/realtime/gemini/token')
+
+    expect(response.status).toBe(200)
+    expect(response.body).toEqual({
+      provider: 'gemini-live',
+      model: 'gemini-3.1-flash-live-preview',
+      accessToken: { value: 'ephemeral-token' },
+      websocketUrl:
+        'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=ephemeral-token',
+    })
+    expect(JSON.stringify(response.body)).not.toContain('test-gemini-key')
+    expect(createGeminiLiveToken).toHaveBeenCalledTimes(1)
   })
 })

@@ -189,6 +189,19 @@ describe('parseVoiceCommand', () => {
         assetId: 'rocket',
       },
     ])
+    expect(parseVoiceCommand('先画一棵树，清除画布后，画一个火箭').operations).toMatchObject([
+      {
+        action: 'create',
+        kind: 'asset',
+        assetId: 'tree',
+      },
+      { action: 'clear' },
+      {
+        action: 'create',
+        kind: 'asset',
+        assetId: 'rocket',
+      },
+    ])
   })
 
   it('routes unmatched object nouns to public Excalidraw library assets when indexed', () => {

@@ -601,17 +601,20 @@ type VoiceDrawingContext = {
 | 语音选择对象 | P1 | 已实现 | 支持"选中红色圆形"、"选中最大的矩形"等 query target。 |
 | 歧义确认 | P1 | 部分实现 | 无法理解的命令会进入确认反馈；多个候选对象的二次确认尚未实现。 |
 | AI 复杂解析 | P2 | 已实现第一版 | 本地规则低置信或命令包含页面、草图、旁边、排列、步骤等复杂意图时，调用服务端 AI parser，把自然语言转成受控 `DrawOperation[]`。 |
-| 绘制过程动画 | P1 | 已实现第一版 | 新增逐对象 reveal 动画，复杂指令返回多个操作后不再一次性全部显示；导出仍使用最终状态，动效只影响渲染态。 |
+| 绘制过程动画 | P1 | 已实现第二版 | 新增逐对象 reveal 动画；视觉资产再按内部 stroke/path 分帧显现，火箭、大象等单个 asset 不再整块瞬间出现；导出仍使用最终状态，动效只影响渲染态。 |
 | AI 坐标化布局 | P1 | 已实现第一版 | `create` 操作支持 `x/y/width/height`；AI parser prompt 要求复杂页面/场景使用 900x560 坐标布局；服务端和执行器双层限制尺寸，圆形强制等宽高。 |
 | 语义场景组件 | P1 | 已实现第一版 | “太阳和云”由本地语义模板生成：太阳包含中心圆和 8 条光芒，云包含多个云团和底座；组件部件不自动选中，避免蓝色选择框破坏画面。 |
 | 视觉资产库 | P1 | 已实现第三版 | 新增 `asset` 绘图协议和 `visualAssets` 组件库；大象、猫、树、树状图、房子、汽车、火箭等对象可通过通用名词检索走本地 SVG stroke 资产，不再由 AI 临时用圆形/矩形硬拼。 |
 | Excalidraw 公共资产接入 | P1 | 已实现竖切 | 已同步 Excalidraw Libraries 全量 229 个 `.excalidrawlib` 到 `public/vendor/excalidraw-libraries`，保留 MIT LICENSE；运行时按需懒加载库文件，首批语义映射支持机器人、手机/电脑、图表、火柴人。 |
 | 外部资产渲染 | P1 | 已实现第一版 | 支持把 Excalidraw 旧/新 library item 格式 hydrate 成 `externalElements`，渲染 rectangle、ellipse、diamond、line、arrow、freedraw/draw、text；日志只显示元素数量，避免展开大型 JSON。 |
 | 公共资产自动检索 | P1 | 已实现第一版 | 新增 `findExternalLibraryAssetInIndex` 和 `resolveExternalLibraryAssetOperation`；未知对象在调用 AI 前先检索 `libraries.index.json`，通过库名、描述、source 和中文词扩展打分，命中后懒加载对应 `.excalidrawlib`。示例：“雪花数据仓库图标”命中 `thijsdev/snowflake.excalidrawlib`。 |
-| 渐进笔画绘制 | P1 | 已实现第一版 | 视觉资产内部每条 path 使用 `sketch-stroke` 动画按延迟显现；“画一头大象”无需等待 AI parser，日志显示 `provider: local-asset`。 |
+| 渐进笔画绘制 | P1 | 已实现第三版 | 新图形一次挂载完整 SVG，内部 path 用 CSS `sketch-stroke` 按 `--draw-delay` 顺序一笔一画绘制；React 不再逐帧增删 path，避免重挂和闪烁。普通形状、视觉资产、外部 Excalidraw 元素都带笔画动画，填充色在线条接近完成后出现。 |
+| 录音状态不重绘画布 | P0 | 已修复 | `Bolna MiMo`、状态栏等控制区状态变化不再重挂已有 SVG path；画布 item 组件使用 `React.memo`，避免 `dangerouslySetInnerHTML` 在无关 re-render 时重写 DOM，防止已完成图形闪烁/动画重播。 |
 | 实时草稿预览 | P1 | 已实现第一版 | Web Speech API 的 interim transcript 会进入 `buildRealtimePreview`，安全创建类命令可边说边显示半透明草稿；final transcript 到来后清除草稿并走正式执行、日志和播报。清空、删除、撤销、重做、导出等破坏/历史命令只在 final 阶段执行。 |
-| Realtime AI provider 基座 | P1 | 已实现探针版 | 新增 `/api/realtime/status` 和 `/api/realtime/openai/session`；服务端用标准 `OPENAI_API_KEY` 向 OpenAI Realtime mint 短期 client secret，前端只读取短期 secret 和状态，不暴露标准 key。session 预置 `emit_draw_operations` function tool，用于下一版把语音直接解析成 `DrawOperation[]`。 |
-| 多步指令保真 | P0 | 已修复 | “清空画布，然后画一个火箭”现在解析为 `clear + create asset rocket`，不会只执行清空并吞掉后半句。 |
+| Realtime AI provider 基座 | P1 | 已实现第一版 | 新增 `/api/realtime/status` 和 `/api/realtime/openai/session`；服务端用标准 `OPENAI_API_KEY` 向 OpenAI Realtime mint 短期 client secret，前端只读取短期 secret 和状态，不暴露标准 key。session 预置 `emit_draw_operations` function tool。 |
+| OpenAI Realtime WebRTC 执行链 | P1 | 已实现第一版 | 前端新增 `Realtime AI` 按钮；启动后请求短期 client secret，创建 `RTCPeerConnection`，发送麦克风 audio track 到 OpenAI Realtime，并监听 data channel 的 `response.function_call_arguments.done` 事件。浏览器 SDP 按官方链路 POST 到 `https://api.openai.com/v1/realtime/calls`；失败时 UI 显示 provider 状态码和错误消息。模型调用 `emit_draw_operations` 时，`isFinal:false` 只显示安全 create 草稿，`isFinal:true` 才正式执行、播报并写日志。 |
+| Gemini Live API Free Tier 路径 | P1 | 已实现探针版，UI 暂停入口 | 新增 `/api/realtime/gemini/token` 和 Gemini Live WebSocket 探针；服务端可用 `GEMINI_API_KEY` 生成 ephemeral token，前端模块可直连 `BidiGenerateContentConstrained` 并消费 `toolCall.functionCalls`。当前 Google project 返回 `1008 Your project has been denied access`，主界面不再显示 `Gemini Live` 按钮，只在能力区标记“待完成”。 |
+| 多步指令保真 | P0 | 已修复第三版 | “清空画布，然后画一个火箭”解析为 `clear + create asset rocket`；“先画一棵树，清除画布后，画一个火箭”解析为 `create tree + clear + create rocket`。执行器保留每步 timeline，动画会先画树、再显示清空帧、再逐笔画火箭，不会把树残留到火箭后面。 |
 | 词义消歧 | P1 | 已修复第一版 | 视觉资产匹配改为最长别名优先；“树状图”命中 `treeDiagram`，不再被短别名“树”误判为植物树。 |
 | 导出图片 | P2 | 已实现 | 支持导出 SVG；未实现 PNG 栅格化导出。 |
 
@@ -623,11 +626,13 @@ type VoiceDrawingContext = {
 |---|---|---|
 | tldraw Editor API 深度接管 | 已完成第一阶段：主界面渲染 tldraw 画布，并把 `CanvasItem` 投影为 tldraw `geo`、`text`、`arrow` shapes；命令状态、撤销重做、SVG 导出仍由本地执行器维护。 | 下一阶段把历史记录、导出和对象编辑逐步迁移到 tldraw Editor API，当前 SVG 镜像保留为回归基线。 |
 | OpenAI Transcribe 兜底 | 已完成基础版本，仍需要真实多浏览器人工验收录音权限和音频格式兼容性。 | 已提供 Express `/api/transcribe`、`/api/voice/status` 和前端“云端转写”按钮。 |
-| MiMo ASR 跨浏览器语音 | 已完成基础版本，服务端使用 `mimo-v2.5-asr` chat-completions `input_audio` 协议；实测 token-plan 网关可返回中文转写。 | 前端 “Bolna MiMo” 录音使用 `AudioContext` 采集 PCM 并编码 WAV，提交到 `/api/asr/bolna-mimo` 后复用同一绘图解析链路。 |
+| MiMo ASR 跨浏览器语音 | 当前主语音入口。已完成基础版本，服务端使用 `mimo-v2.5-asr` chat-completions `input_audio` 协议；实测 token-plan 网关可返回中文转写。 | 前端 “Bolna MiMo” 录音使用 `AudioContext` 采集 PCM 并编码 WAV，提交到 `/api/asr/bolna-mimo` 后复用同一绘图解析链路。短期演示和人工测试优先使用此路径。 |
 | AI 复杂解析深度能力 | 已完成第一版 AI parser；仍受限于当前 `DrawOperation` 表达能力和模型延迟。真实测试中“登录页面草图”可转成标题、输入框、按钮等多个操作，但响应约 10-13 秒，不适合每个实时短命令都走 AI。 | 采用混合策略：高置信本地规则秒画；复杂/低置信命令走 AI；后续优化流式反馈、布局能力和更快模型。 |
 | 更美观的图形表达 | 已开始改造：太阳云和常见对象不再靠 AI 随机圆形堆叠，改为本地视觉资产和 stroke 组件；已接入 Excalidraw 公共资产库，并支持基于库元数据的中文意图检索。当前仍只选择命中库的第 1 个 item，尚未做到库内 item 级智能挑选。 | 下一版扩展“库内 item 检索”：解析每个 `.excalidrawlib` 的 item 数量、元素类型、文本内容和预览缩略图，让 AI 自动选择最相关 item。 |
 | 真流式跨浏览器 ASR | Web Speech API 已支持 interim 实时草稿，但只覆盖 Chrome/Edge 等浏览器；MiMo 当前已接入的是 `input_audio` 批量上传协议，`stream:true` 只能流式返回识别结果，不等于麦克风音频边采边传。 | 下一版做 MiMo `stream:true` 探针和短音频分片/SSE 近实时链路；若 MiMo 提供 WebSocket/WebRTC streaming ASR，再接入真正跨浏览器实时 ASR。 |
-| OpenAI Realtime WebRTC 执行链 | 已完成后端 ephemeral session 和前端状态探针，但尚未把浏览器麦克风音频接到 WebRTC，也未消费模型 function call 并落到画布。 | 下一版实现前端 `RealtimeVoiceProvider`：创建 `RTCPeerConnection`、发送麦克风 audio track、监听 data channel events、把 `emit_draw_operations` 参数校验后进入 preview/final 执行器。 |
+| OpenAI Realtime WebRTC 人工验收 | 已完成后端 ephemeral session、前端 WebRTC 连接、data channel function-call 消费和画布执行链；但浏览器麦克风权限、真实 Realtime 模型 function call 频率、网络连通性和 token 权限仍需人工测试。 | 当前 UI 提供 `Realtime AI` 按钮；若连接失败，会显示错误。下一版根据真实测试调 prompt、tool schema、VAD 和 function call 触发策略。 |
+| OpenAI Realtime 官方 key | Realtime endpoint 使用 OpenAI 官方 `https://api.openai.com/v1/realtime/*`，不兼容 `sk-route*` router key。 | `.env` 可配置 `OPENAI_REALTIME_API_KEY`；若不配置则回退 `OPENAI_API_KEY`。检测到 router key 时，状态显示不可用并阻止请求，避免错误打到官方 endpoint。 |
+| Gemini Live 人工验收 | 已完成 status、ephemeral token、WebSocket setup、PCM16 audio streaming、toolCall 解析和画布执行链；WebSocket setup 已修正为 `generationConfig.responseModalities`。当前测试 key 可创建 token，但 Live WebSocket 返回 `1008 Your project has been denied access`，说明 Google 项目尚无 Live API 权限。 | 暂停为待完成模块，主 UI 移除 `Gemini Live` 按钮，避免用户进入必失败链路。需要换有 Live API access 的 Gemini project/key 后再恢复入口，继续验真实语音识别质量、tool call 触发频率和 Free Tier 限额。 |
 | 多候选对象确认 | 需要对象候选排序、确认问题状态机和后续语音回答解析，本轮只实现未知命令确认。 | 已支持按颜色、类型、最大/最小选择，减少歧义发生概率。 |
 | PNG 导出 | 浏览器端 SVG 转 PNG 需要 canvas rasterize 和字体加载处理，本轮先交付 SVG。 | 用户可导出 SVG，后续加 PNG 下载。 |
 
