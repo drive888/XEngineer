@@ -563,7 +563,7 @@ body {
   padding: 8px 0;
 }
 
-.demo-video-frame {
+.demo-gif-frame {
   background:
     linear-gradient(#dbe4ee 1px, transparent 1px),
     linear-gradient(90deg, #dbe4ee 1px, transparent 1px);
@@ -576,7 +576,7 @@ body {
   padding: 12px;
 }
 
-.demo-video-frame video {
+.demo-gif-frame img {
   aspect-ratio: 16 / 10;
   background: #0f172a;
   border: 1px solid #cbd5e1;
@@ -588,7 +588,7 @@ body {
   width: 100%;
 }
 
-.demo-video-caption {
+.demo-gif-caption {
   color: #475569;
   font-size: 14px;
   font-weight: 760;
@@ -1406,7 +1406,7 @@ code {
     grid-template-columns: 1fr;
   }
 
-  .demo-video-frame {
+  .demo-gif-frame {
     min-height: 280px;
   }
 
@@ -1508,7 +1508,7 @@ code {
     width: 48px;
   }
 
-  .demo-video-frame {
+  .demo-gif-frame {
     min-height: 240px;
   }
 

@@ -63,8 +63,7 @@ const demoCommands = [
   ['树后清除火箭', '先画一棵树，清除画布后，画一个火箭'],
   ['登录页草图', '帮我画一个登录页面草图，有标题、输入框和按钮'],
 ] as const
-const landingDemoVideoUrl = new URL('../docs/demo/demo.mov', import.meta.url).href
-const landingDemoPosterUrl = new URL('../docs/demo/demo-cover.png', import.meta.url).href
+const landingDemoGifUrl = new URL('../docs/demo/demo-preview.gif', import.meta.url).href
 
 const aiIntentPattern = /帮我|页面|草图|旁边|附近|多个|几个|三个|四个|一排|排列|对齐|步骤|流程|注册|登录|用户|看起来|更像|布局|界面|图标|太阳|云|房子|树/
 const strokePlannerIntentPattern = /风景|场景|森林|海边|山|河|湖|城市|街道|草原|草地|花园|天空|动物园|房间|公园|一片/
@@ -358,23 +357,9 @@ function LandingPage({ onStart }: { onStart: () => void }) {
               <p>观察画布按步骤绘制</p>
             </div>
           </div>
-          <div className="demo-video-frame">
-            <video
-              aria-label="DrawLess 语音绘图录屏演示"
-              autoPlay
-              controls
-              loop
-              muted
-              onLoadedData={(event) => {
-                event.currentTarget.play().catch(() => {
-                  // Keep controls visible when the browser blocks autoplay.
-                })
-              }}
-              playsInline
-              poster={landingDemoPosterUrl}
-              src={landingDemoVideoUrl}
-            />
-            <div className="demo-video-caption">真实录屏：按空格录音，语音结束后画布逐步绘制。</div>
+          <div className="demo-gif-frame">
+            <img alt="DrawLess 语音绘图录屏动图演示" src={landingDemoGifUrl} />
+            <div className="demo-gif-caption">真实录屏截取：按空格录音，语音结束后画布逐步绘制。</div>
           </div>
         </div>
         <div className="prompt-strip" aria-label="可测试语音示例">
