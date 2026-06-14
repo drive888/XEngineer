@@ -63,6 +63,8 @@ const demoCommands = [
   ['树后清除火箭', '先画一棵树，清除画布后，画一个火箭'],
   ['登录页草图', '帮我画一个登录页面草图，有标题、输入框和按钮'],
 ] as const
+const landingDemoVideoUrl = new URL('../docs/demo/demo.mov', import.meta.url).href
+const landingDemoPosterUrl = new URL('../docs/demo/demo-cover.png', import.meta.url).href
 
 const aiIntentPattern = /帮我|页面|草图|旁边|附近|多个|几个|三个|四个|一排|排列|对齐|步骤|流程|注册|登录|用户|看起来|更像|布局|界面|图标|太阳|云|房子|树/
 const strokePlannerIntentPattern = /风景|场景|森林|海边|山|河|湖|城市|街道|草原|草地|花园|天空|动物园|房间|公园|一片/
@@ -351,19 +353,28 @@ function LandingPage({ onStart }: { onStart: () => void }) {
             <div>
               <span className="demo-status">示例演示</span>
               <p>按空格开始录音</p>
-              <p>说：“画一片草原，再加太阳和云”</p>
+              <p>说出演示里的绘图指令</p>
               <p>再按一次结束录音</p>
+              <p>观察画布按步骤绘制</p>
             </div>
           </div>
-          <div className="demo-canvas" aria-hidden="true">
-            <div className="demo-sun" />
-            <div className="demo-cloud cloud-a" />
-            <div className="demo-cloud cloud-b" />
-            <div className="demo-horizon" />
-            <div className="demo-grass grass-a" />
-            <div className="demo-grass grass-b" />
-            <div className="demo-grass grass-c" />
-            <div className="demo-cursor" />
+          <div className="demo-video-frame">
+            <video
+              aria-label="DrawLess 语音绘图录屏演示"
+              autoPlay
+              controls
+              loop
+              muted
+              onLoadedData={(event) => {
+                event.currentTarget.play().catch(() => {
+                  // Keep controls visible when the browser blocks autoplay.
+                })
+              }}
+              playsInline
+              poster={landingDemoPosterUrl}
+              src={landingDemoVideoUrl}
+            />
+            <div className="demo-video-caption">真实录屏：按空格录音，语音结束后画布逐步绘制。</div>
           </div>
         </div>
         <div className="prompt-strip" aria-label="可测试语音示例">
