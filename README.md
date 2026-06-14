@@ -16,6 +16,10 @@
 - 尽量理解自然语言里的复合指令
 - 让图形不是瞬间出现，而是按笔画逐步绘制
 
+## 在线体验
+
+[打开 DrawLess 在线演示](https://leoxi.top/DrawLess/)
+
 ## 演示视频
 
 [点击观看在线演示视频](https://mcny7kjhv47b.feishu.cn/file/PqNDbNwEvoizKcxIdCycAQJmn6g?from=from_copylink)
